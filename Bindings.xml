@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="FOREVERQUESTLOG_TOGGLE" header="FOREVERQUESTLOG" category="ADDONS">
+        ForeverQuestLogToggleButton:Click()
+    </Binding>
+</Bindings>

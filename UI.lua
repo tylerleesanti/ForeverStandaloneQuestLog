@@ -1,0 +1,782 @@
+local ADDON, ns = ...
+
+-- Layout and art follow Blizzard's dual-pane Classic quest log (Wrath, Blizzard_UIPanels_Game/Wrath/
+-- QuestLogFrame.xml): a 682x447 window on UI-QuestLogDualPane-Left/-RIGHT, quest list on the left
+-- page, details on the parchment page on the right, opened at the old left-panel spot (0, -104).
+-- These are the sizes at the classic (default) window size; the window can be resized from the
+-- settings, which stretches the list and details by the difference (see ns.ApplySize).
+local WIDTH, HEIGHT = 682, 447
+local LIST_X, LIST_Y, LIST_W, LIST_H = 19, -75, 305, 335
+local DETAIL_RIGHT, DETAIL_Y, DETAIL_W, DETAIL_H = -32, -77, 298, 333
+local textW = DETAIL_W - 12 -- detail text width inside the scroll pane (follows the window width)
+ns.DEFAULT_WIDTH, ns.DEFAULT_HEIGHT = WIDTH, HEIGHT
+
+-- Stretchable art. The classic window is two textures (Left: art x 0-512 of a 512x512 file, RIGHT:
+-- art x 512-682 of a 256x512 file), 445 tall. It's cut into a grid: the fixed columns/rows hold the
+-- borders, portrait, title bar, the divider between the pages and the button bar, and keep their
+-- size; the stretch ones are plain page and parchment, which spread to fill a bigger window.
+local ART_COLS = { 0, 70, 300, 380, 620, 682 }   -- art x breaks
+local COL_STRETCH = { false, "list", false, "detail", false }
+local ART_ROWS = { 0, 80, 400, 445 }             -- art y breaks (from the top)
+local ROW_STRETCH = { false, true, false }
+local artPieces = {}
+
+-- Parchment text colours (the game's "Parchment" material).
+local TITLE_R, TITLE_G, TITLE_B = 0, 0, 0
+local TEXT_R, TEXT_G, TEXT_B = 0.18, 0.12, 0.06
+local DONE_R, DONE_G, DONE_B = 0.35, 0.35, 0.35
+
+local DQ = "Interface\\QuestFrame\\"
+local BTN = "Interface\\Buttons\\"
+
+local frame, listScroll, listChild, detailScroll, detailChild
+local countText, searchBox, emptyText
+local abandonBtn, trackBtn, shareBtn
+local rowPool = {}
+local rows = {}          -- current flat row data
+local selectedQuestID
+local dirty = true
+local refreshQueued = false
+
+------------------------------------------------------------------------
+-- Helpers
+------------------------------------------------------------------------
+local function QuestColor(level)
+    if ns.db.colorByLevel and GetQuestDifficultyColor then
+        local c = GetQuestDifficultyColor(level)
+        if c then return c.r, c.g, c.b end
+    end
+    return 1, 0.82, 0
+end
+
+local function QuestLabel(q)
+    if ns.db.showLevels and q.level and q.level > 0 then
+        return ("[%d] %s"):format(q.level, q.title)
+    end
+    return q.title
+end
+
+-- The right-hand tag, as the classic log shows it: (Failed) / (Complete) / Elite / Dungeon...
+local function QuestTag(q)
+    if q.failed then return "(" .. (FAILED or "Failed") .. ")" end
+    if q.complete then return "(" .. (COMPLETE or "Complete") .. ")" end
+    return q.tag
+end
+
+-- Money as gold/silver/copper icons. The global GetCoinTextureString is broken on Forever (it calls
+-- something that isn't there), so prefer the C_CurrencyInfo version and fall back to plain text.
+local function MoneyText(copper)
+    for _, fn in ipairs({ C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString, GetMoneyString,
+        GetCoinTextureString }) do
+        if fn then
+            local ok, s = pcall(fn, copper)
+            if ok and type(s) == "string" and s ~= "" then return s end
+        end
+    end
+    local g, s, c = floor(copper / 10000), floor(copper / 100) % 100, copper % 100
+    return (g > 0 and g .. "g " or "") .. ((g > 0 or s > 0) and s .. "s " or "") .. c .. "c"
+end
+
+local function InsertQuestLink(q)
+    local link = GetQuestLink and GetQuestLink(q.questID)
+    if not link then return end
+    if ChatFrameUtil and ChatFrameUtil.InsertLink then
+        ChatFrameUtil.InsertLink(link)
+    elseif ChatEdit_InsertLink then
+        ChatEdit_InsertLink(link)
+    end
+end
+
+local function ToggleWatch(questID)
+    if not C_QuestLog.GetQuestWatchType then return end
+    if C_QuestLog.GetQuestWatchType(questID) ~= nil then
+        C_QuestLog.RemoveQuestWatch(questID)
+    else
+        C_QuestLog.AddQuestWatch(questID)
+    end
+end
+
+------------------------------------------------------------------------
+-- Quest list
+------------------------------------------------------------------------
+local function OnRowClick(row)
+    local data = row.data
+    if not data then return end
+    if data.isHeader then
+        ns.db.collapsed[data.title] = not ns.db.collapsed[data.title] or nil
+        ns.Refresh()
+        return
+    end
+    if IsShiftKeyDown() then
+        InsertQuestLink(data)
+        return
+    end
+    if IsControlKeyDown() then
+        ToggleWatch(data.questID)
+        return
+    end
+    selectedQuestID = data.questID
+    ns.Refresh()
+end
+
+-- Hovering a quest brightens its text, as in the classic log; leaving restores its colour.
+local function OnRowEnter(row)
+    if row.data and not row.data.isHeader then
+        row.text:SetTextColor(1, 1, 1)
+        row.tag:SetTextColor(1, 1, 1)
+    end
+end
+
+local function OnRowLeave(row)
+    if row.data and not row.data.isHeader then
+        local r, g, b = QuestColor(row.data.level)
+        row.text:SetTextColor(r, g, b)
+        row.tag:SetTextColor(r, g, b)
+    end
+end
+
+local function GetRow(i)
+    local row = rowPool[i]
+    if row then return row end
+    row = CreateFrame("Button", nil, listChild)
+    -- height and vertical position are set in UpdateList, since they follow the font size setting
+    row:RegisterForClicks("LeftButtonUp")
+    row:SetScript("OnClick", OnRowClick)
+    row:SetScript("OnEnter", OnRowEnter)
+    row:SetScript("OnLeave", OnRowLeave)
+
+    -- Selection bar, tinted with the quest's colour (QuestLogSkillHighlight in the classic log).
+    row.selected = row:CreateTexture(nil, "BACKGROUND")
+    row.selected:SetAllPoints()
+    row.selected:SetTexture(DQ .. "UI-QuestLogTitleHighlight")
+    row.selected:SetBlendMode("ADD")
+    row.selected:Hide()
+
+    -- Header +/- button art, with its hover glow.
+    row.expand = row:CreateTexture(nil, "ARTWORK")
+    row.expand:SetSize(16, 16)
+    row.expand:SetPoint("LEFT", 3, 0)
+    row.expandGlow = row:CreateTexture(nil, "HIGHLIGHT")
+    row.expandGlow:SetSize(16, 16)
+    row.expandGlow:SetPoint("LEFT", 3, 0)
+    row.expandGlow:SetTexture(BTN .. "UI-PlusButton-Hilight")
+    row.expandGlow:SetBlendMode("ADD")
+
+    -- Tracked check, where the +/- sits on a header.
+    row.watch = row:CreateTexture(nil, "ARTWORK")
+    row.watch:SetSize(16, 16)
+    row.watch:SetPoint("LEFT", 2, 0)
+    row.watch:SetTexture(BTN .. "UI-CheckBox-Check")
+
+    row.tag = row:CreateFontString(nil, "ARTWORK")
+    row.tag:SetFontObject(ns.fonts.tag)
+    row.tag:SetPoint("RIGHT", -2, 0)
+    row.tag:SetJustifyH("RIGHT")
+
+    row.text = row:CreateFontString(nil, "ARTWORK")
+    row.text:SetFontObject(ns.fonts.name)
+    row.text:SetPoint("LEFT", 20, 0)
+    row.text:SetPoint("RIGHT", row.tag, "LEFT", -4, 0)
+    row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
+
+    rowPool[i] = row
+    return row
+end
+
+-- Set by ns.OpenToQuest: the quest to bring into view on the next list update.
+local revealQuestID
+
+-- Finds the title of the header a quest sits under in the game's log.
+local function HeaderTitleFor(questID)
+    local title
+    for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+        local info = C_QuestLog.GetInfo(i)
+        if info then
+            if info.isHeader then
+                title = info.title
+            elseif info.questID == questID then
+                return title
+            end
+        end
+    end
+end
+
+local function UpdateList()
+    if revealQuestID then
+        -- Opening to a quest: expand its zone so it is listed (OpenToQuest already cleared the search).
+        local header = HeaderTitleFor(revealQuestID)
+        if header then ns.db.collapsed[header] = nil end
+    end
+    local filter = searchBox:GetText()
+    filter = filter ~= "" and filter:lower() or nil
+
+    local numQuests, maxQuests
+    rows, numQuests, maxQuests = ns.BuildRows(filter)
+    countText:SetFormattedText("%s: %d/%d", QUESTS_LABEL or "Quests", numQuests, maxQuests)
+    if numQuests >= maxQuests then
+        countText:SetTextColor(1, 0.2, 0.2)
+    else
+        countText:SetTextColor(1, 0.82, 0)
+    end
+
+    -- Keep the selection if the quest is still listed, otherwise fall back to the first quest.
+    local found, first
+    for _, r in ipairs(rows) do
+        if not r.isHeader then
+            first = first or r
+            if r.questID == selectedQuestID then found = r end
+        end
+    end
+    local selected = found or first
+    selectedQuestID = selected and selected.questID
+
+    local rowHeight = ns.RowHeight()
+    for i, r in ipairs(rows) do
+        local row = GetRow(i)
+        row.data = r
+        row:SetHeight(rowHeight)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * rowHeight)
+        row:SetPoint("RIGHT", listChild, "RIGHT", 0, 0)
+        row:Show()
+        if r.isHeader then
+            row.expand:SetTexture(BTN .. (r.collapsed and "UI-PlusButton-Up" or "UI-MinusButton-Up"))
+            row.expand:Show()
+            row.expandGlow:Show()
+            row.watch:Hide()
+            row.selected:Hide()
+            row.text:SetFontObject(ns.fonts.header)
+            row.text:SetText(r.title)
+            local hc = ns.db.headerColor
+            row.text:SetTextColor(hc[1], hc[2], hc[3])
+            row.tag:SetText("")
+        else
+            local cr, cg, cb = QuestColor(r.level)
+            row.expand:Hide()
+            row.expandGlow:Hide()
+            row.watch:SetShown(r.watched)
+            row.text:SetFontObject(ns.fonts.name)
+            row.text:SetText(QuestLabel(r))
+            row.text:SetTextColor(cr, cg, cb)
+            row.tag:SetText(QuestTag(r) or "")
+            row.tag:SetTextColor(cr, cg, cb)
+            local isSelected = r.questID == selectedQuestID
+            row.selected:SetShown(isSelected)
+            if isSelected then row.selected:SetVertexColor(cr, cg, cb) end
+        end
+    end
+    for i = #rows + 1, #rowPool do
+        rowPool[i]:Hide()
+        rowPool[i].data = nil
+    end
+    listChild:SetHeight(math.max(1, #rows * rowHeight))
+
+    if revealQuestID then
+        -- Scroll the list so the quest is in the middle (or as near as the list allows).
+        -- Done on the next frame, once the scroll frame has picked up the list's new height.
+        for i, r in ipairs(rows) do
+            if r.questID == revealQuestID then
+                local target = (i - 1) * rowHeight - (listScroll:GetHeight() - rowHeight) / 2
+                local maxScroll = math.max(0, #rows * rowHeight - listScroll:GetHeight())
+                local scroll = math.min(math.max(0, target), maxScroll)
+                C_Timer.After(0, function() listScroll:SetVerticalScroll(scroll) end)
+                break
+            end
+        end
+        revealQuestID = nil
+    end
+    emptyText:SetShown(#rows == 0)
+    if #rows == 0 then
+        emptyText:SetText(filter and "No quests match your search."
+            or (QUESTLOG_NO_QUESTS_TEXT or "You have no quests."))
+    end
+    return selected
+end
+
+------------------------------------------------------------------------
+-- Details pane (dark text on the parchment page)
+------------------------------------------------------------------------
+local detailLines = {} -- reusable font strings
+
+local function DetailLine(i, font)
+    local fs = detailLines[i]
+    if not fs then
+        fs = detailChild:CreateFontString(nil, "ARTWORK")
+        fs:SetWidth(textW)
+        fs:SetJustifyH("LEFT")
+        fs:SetShadowOffset(0, 0) -- dark text on parchment reads better without the drop shadow
+        detailLines[i] = fs
+    end
+    fs:SetFontObject(font)
+    fs:SetShadowOffset(0, 0)
+    fs:Show()
+    return fs
+end
+
+local function UpdateDetails(q)
+    local lines = {}
+    local titleFont = ns.fonts.title
+    local bodyFont = ns.fonts.body
+    local function add(font, text, r, g, b, gap)
+        lines[#lines + 1] = { font = font, text = text, r = r, g = g, b = b, gap = gap or 4 }
+    end
+
+    if q then
+        local d = ns.GetDetails(q)
+        add(titleFont, d.title, TITLE_R, TITLE_G, TITLE_B, 5)
+        if d.objectiveText then add(bodyFont, d.objectiveText, TEXT_R, TEXT_G, TEXT_B, 6) end
+        for _, o in ipairs(d.objectives) do
+            if o.finished then
+                add(bodyFont, "- " .. o.text, DONE_R, DONE_G, DONE_B, 3)
+            else
+                add(bodyFont, "- " .. o.text, TEXT_R, TEXT_G, TEXT_B, 3)
+            end
+        end
+
+        if d.description then
+            add(titleFont, QUEST_DESCRIPTION or "Description", TITLE_R, TITLE_G, TITLE_B, 14)
+            add(bodyFont, d.description, TEXT_R, TEXT_G, TEXT_B, 6)
+        end
+
+        if d.xp or d.money then
+            add(titleFont, REWARDS or "Rewards", TITLE_R, TITLE_G, TITLE_B, 14)
+            if d.xp then
+                local xp = BreakUpLargeNumbers and BreakUpLargeNumbers(d.xp) or d.xp
+                add(bodyFont, ("Experience: %s"):format(xp), TEXT_R, TEXT_G, TEXT_B, 6)
+            end
+            if d.money then
+                add(bodyFont, "Money: " .. MoneyText(d.money), TEXT_R, TEXT_G, TEXT_B, 4)
+            end
+        end
+    end
+
+    local y = 0
+    for i, l in ipairs(lines) do
+        local fs = DetailLine(i, l.font)
+        fs:SetText(l.text)
+        fs:SetTextColor(l.r, l.g, l.b)
+        y = y + l.gap
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", 4, -y)
+        y = y + fs:GetStringHeight()
+    end
+    for i = #lines + 1, #detailLines do detailLines[i]:Hide() end
+    detailChild:SetHeight(math.max(1, y + 8))
+
+    -- Bottom buttons follow the selected quest.
+    abandonBtn:SetEnabled(q ~= nil)
+    trackBtn:SetEnabled(q ~= nil)
+    trackBtn:SetText(q and q.watched and (UNTRACK_QUEST_ABBREV or "Untrack") or (TRACK_QUEST_ABBREV or "Track"))
+    local canShare = q and IsInGroup() and C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(q.questID)
+    shareBtn:SetEnabled(canShare and true or false)
+end
+
+------------------------------------------------------------------------
+-- Refresh scheduling
+------------------------------------------------------------------------
+function ns.Refresh()
+    if not frame or not frame:IsShown() then
+        dirty = true
+        return
+    end
+    dirty = false
+    local selected = UpdateList()
+    UpdateDetails(selected)
+end
+
+-- Quest events come in bursts; rebuild once on the next frame instead of once per event.
+function ns.MarkDirty()
+    dirty = true
+    if frame and frame:IsShown() and not refreshQueued then
+        refreshQueued = true
+        C_Timer.After(0, function()
+            refreshQueued = false
+            if dirty then ns.Refresh() end
+        end)
+    end
+end
+
+function ns.Toggle()
+    if not frame then return end
+    frame:SetShown(not frame:IsShown())
+end
+
+-- Opens the window on a quest: selects it, expands its zone and scrolls it into view. Returns false
+-- when the quest isn't in the player's log, so a caller can fall back to the game's own handling.
+function ns.OpenToQuest(questID)
+    if not frame or not questID then return false end
+    local logIndex = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(questID)
+    if not logIndex then return false end
+    if searchBox:GetText() ~= "" then searchBox:SetText("") end -- a search could hide the quest
+    selectedQuestID = questID
+    revealQuestID = questID
+    if detailScroll then detailScroll:SetVerticalScroll(0) end
+    if frame:IsShown() then
+        ns.Refresh()
+    else
+        dirty = true
+        frame:Show() -- OnShow refreshes
+    end
+    return true
+end
+
+-- Where the classic log opened: the left UI panel slot, flush left, 104px below the top.
+function ns.ResetPosition()
+    ns.db.point = nil
+    ns.ApplyPosition()
+end
+
+-- Puts the window where it belongs: the spot you dragged it to, or the classic spot. Run on every
+-- show, so nothing else (the game's own saved frame layout) can leave it somewhere else.
+function ns.ApplyPosition()
+    if not frame then return end
+    frame:ClearAllPoints()
+    local p = ns.db.point
+    if p then
+        frame:SetPoint(p[1], UIParent, p[2], p[3], p[4])
+    else
+        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -104)
+    end
+end
+
+------------------------------------------------------------------------
+-- Abandon confirmation
+------------------------------------------------------------------------
+StaticPopupDialogs.FOREVERQUESTLOG_ABANDON = {
+    text = "Abandon \"%s\"?",
+    button1 = YES or "Yes",
+    button2 = NO or "No",
+    OnAccept = function(_, questID)
+        C_QuestLog.SetSelectedQuest(questID)
+        local setAbandon = C_QuestLog.SetAbandonQuest or SetAbandonQuest
+        local abandon = C_QuestLog.AbandonQuest or AbandonQuest
+        if setAbandon and abandon then
+            setAbandon()
+            abandon()
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    showAlert = true,
+}
+
+local function SelectedRow()
+    for _, r in ipairs(rows) do
+        if not r.isHeader and r.questID == selectedQuestID then return r end
+    end
+end
+
+------------------------------------------------------------------------
+-- Window
+------------------------------------------------------------------------
+-- Forever's UIPanelButtonTemplate and UIPanelCloseButton are the modern (red, atlas) versions,
+-- which don't fit the classic art, so these buttons use the classic textures directly.
+local function SetButtonArt(b, normal, pushed, disabled, highlight, l, r, t, bottom)
+    for setter, file in pairs({ SetNormalTexture = normal, SetPushedTexture = pushed,
+        SetDisabledTexture = disabled, SetHighlightTexture = highlight }) do
+        b[setter](b, file)
+    end
+    for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
+        local tex = b[getter](b)
+        if tex and l then tex:SetTexCoord(l, r, t, bottom) end
+    end
+    b:GetHighlightTexture():SetBlendMode("ADD")
+end
+
+-- Classic red-and-gold panel button art and fonts on an existing button (the settings panel uses it too).
+function ns.StyleClassicButton(b, label, onClick)
+    SetButtonArt(b, BTN .. "UI-Panel-Button-Up", BTN .. "UI-Panel-Button-Down",
+        BTN .. "UI-Panel-Button-Disabled", BTN .. "UI-Panel-Button-Highlight", 0, 0.625, 0, 0.6875)
+    b:SetNormalFontObject(GameFontNormal)
+    b:SetHighlightFontObject(GameFontHighlight)
+    b:SetDisabledFontObject(GameFontDisable)
+    b:SetPushedTextOffset(1, -1)
+    b:SetText(label)
+    b:SetScript("OnClick", onClick)
+end
+
+local function MakeButton(parent, label, width, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(width, 21)
+    ns.StyleClassicButton(b, label, onClick)
+    return b
+end
+
+-- The classic cogwheel (UI-OptionsButton), left of the close button in the title bar.
+local function MakeCogButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(16, 16)
+    b:SetNormalTexture(BTN .. "UI-OptionsButton")
+    b:SetPushedTexture(BTN .. "UI-OptionsButton")
+    b:GetPushedTexture():SetVertexColor(0.7, 0.7, 0.7)
+    b:SetHighlightTexture(BTN .. "UI-OptionsButton")
+    b:GetHighlightTexture():SetBlendMode("ADD")
+    b:SetScript("OnClick", function() ns.ToggleSettings() end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(SETTINGS or "Settings")
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+local function MakeCloseButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(32, 32)
+    SetButtonArt(b, BTN .. "UI-Panel-MinimizeButton-Up", BTN .. "UI-Panel-MinimizeButton-Down",
+        BTN .. "UI-Panel-MinimizeButton-Disabled", BTN .. "UI-Panel-MinimizeButton-Highlight")
+    b:SetScript("OnClick", function() parent:Hide() end)
+    return b
+end
+
+------------------------------------------------------------------------
+-- Window size
+------------------------------------------------------------------------
+-- Cuts the classic art into the ART_COLS x ART_ROWS grid and places each piece, stretching the
+-- "list" and "detail" columns by their share of the extra width and the middle row by the extra height.
+local function LayoutArt(extraList, extraDetail, extraH)
+    local extra = { list = extraList, detail = extraDetail }
+    local used = 0
+    local destY = 0
+    for r = 1, #ART_ROWS - 1 do
+        local ya, yb = ART_ROWS[r], ART_ROWS[r + 1]
+        local h = (yb - ya) + (ROW_STRETCH[r] and extraH or 0)
+        local destX = 0
+        for c = 1, #ART_COLS - 1 do
+            local xa, xb = ART_COLS[c], ART_COLS[c + 1]
+            local w = (xb - xa) + (COL_STRETCH[c] and extra[COL_STRETCH[c]] or 0)
+            -- A column crossing art x 512 takes its two halves from the two files.
+            for _, part in ipairs({ { 0, 512, "UI-QuestLogDualPane-Left", 512 }, { 512, 682, "UI-QuestLogDualPane-RIGHT", 256 } }) do
+                local s, e = math.max(xa, part[1]), math.min(xb, part[2])
+                if e > s then
+                    used = used + 1
+                    local tex = artPieces[used]
+                    if not tex then
+                        tex = frame:CreateTexture(nil, "BORDER")
+                        if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
+                        if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
+                        artPieces[used] = tex
+                    end
+                    local scale = w / (xb - xa)
+                    tex:SetTexture(DQ .. part[3])
+                    tex:SetTexCoord((s - part[1]) / part[4], (e - part[1]) / part[4], ya / 512, yb / 512)
+                    tex:ClearAllPoints()
+                    tex:SetPoint("TOPLEFT", frame, "TOPLEFT", destX + (s - xa) * scale, -destY)
+                    tex:SetSize((e - s) * scale, h)
+                    tex:Show()
+                end
+            end
+            destX = destX + w
+        end
+        destY = destY + h
+    end
+    for i = used + 1, #artPieces do artPieces[i]:Hide() end
+end
+
+-- Applies the saved size: frame, art, list and details. Extra width is shared between the two pages.
+function ns.ApplySize()
+    if not frame then return end
+    local width = ns.db.width or WIDTH
+    local height = ns.db.height or HEIGHT
+    local extraW, extraH = width - WIDTH, height - HEIGHT
+    local extraList = math.floor(extraW / 2)
+    local extraDetail = extraW - extraList
+
+    frame:SetSize(width, height)
+    LayoutArt(extraList, extraDetail, extraH)
+
+    local listW = LIST_W + extraList
+    listScroll:SetSize(listW, LIST_H + extraH)
+    listChild:SetWidth(listW)
+    countText:ClearAllPoints()
+    countText:SetPoint("TOPRIGHT", frame, "TOPLEFT", LIST_X + listW, -48)
+
+    local detailW = DETAIL_W + extraDetail
+    detailScroll:SetSize(detailW, DETAIL_H + extraH)
+    detailChild:SetWidth(detailW)
+    textW = detailW - 12
+    for _, fs in ipairs(detailLines) do fs:SetWidth(textW) end
+
+    ns.MarkDirty()
+end
+
+------------------------------------------------------------------------
+-- Position lock
+------------------------------------------------------------------------
+local lockBtn
+
+local function UpdateLockButton()
+    if not lockBtn then return end
+    local state = ns.db.locked and "Locked" or "Unlocked"
+    lockBtn:SetNormalTexture(BTN .. "LockButton-" .. state .. "-Up")
+    lockBtn:SetPushedTexture(BTN .. "LockButton-" .. state .. "-Up")
+    lockBtn:GetPushedTexture():SetVertexColor(0.7, 0.7, 0.7)
+end
+
+local function ShowLockTooltip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(ns.db.locked and "Position locked" or "Position unlocked")
+    GameTooltip:AddLine("Left-click: " .. (ns.db.locked and "unlock" or "lock") .. " the window's position", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: move it back to the left side of the screen", 1, 1, 1)
+    GameTooltip:Show()
+end
+
+local function MakeLockButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(32, 32) -- same as the close button; the padlock art has padding built in, so smaller looks squished
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetHighlightTexture(BTN .. "UI-Panel-MinimizeButton-Highlight")
+    b:GetHighlightTexture():SetBlendMode("ADD")
+    b:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then
+            ns.ResetPosition()
+        else
+            ns.db.locked = not ns.db.locked
+            UpdateLockButton()
+        end
+        if GameTooltip:IsOwned(self) then ShowLockTooltip(self) end
+    end)
+    b:SetScript("OnEnter", ShowLockTooltip)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    lockBtn = b
+    UpdateLockButton()
+    return b
+end
+
+function ns.CreateWindow()
+    frame = CreateFrame("Frame", "ForeverQuestLogFrame", UIParent)
+    frame:SetSize(WIDTH, HEIGHT)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetToplevel(true)
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self)
+        if not ns.db.locked then self:StartMoving() end
+    end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        -- Dragging marks a named frame "user placed", and the game then restores it from its own
+        -- layout file (WTF\...\layout-local.txt), overriding this add-on. The position is kept in
+        -- ForeverQuestLogDB instead, so the game's copy is switched off.
+        self:SetUserPlaced(false)
+        local point, _, relPoint, x, y = self:GetPoint()
+        ns.db.point = { point, relPoint, x, y }
+    end)
+    if frame.SetDontSavePosition then frame:SetDontSavePosition(true) end
+    frame:SetUserPlaced(false) -- drops the game's old saved copy from layout-local.txt at next logout
+    frame:Hide()
+    tinsert(UISpecialFrames, "ForeverQuestLogFrame") -- Escape closes it
+    ns.ApplyPosition()
+
+    -- Art: the book portrait sits under the frame art, which has a round hole for it.
+    local book = frame:CreateTexture(nil, "BACKGROUND")
+    book:SetSize(64, 64)
+    book:SetPoint("TOPLEFT", 3, -4)
+    book:SetTexture(DQ .. "UI-QuestLog-BookIcon")
+
+    -- Frame art: built (and rebuilt on resize) by LayoutArt.
+
+    local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    title:SetSize(300, 14)
+    title:SetPoint("TOP", 0, -15)
+    title:SetText(QUEST_LOG or "Quest Log")
+
+    local close = MakeCloseButton(frame)
+    close:SetPoint("TOPRIGHT", 2, -8)
+
+    -- Cogwheel just left of the X, centred on the same line (the X's centre is 24px down).
+    local cog = MakeCogButton(frame)
+    cog:SetPoint("RIGHT", close, "LEFT", 2, 0)
+    ns.CreateSettings(frame)
+
+    -- Padlock left of the cogwheel.
+    local lock = MakeLockButton(frame)
+    lock:SetPoint("RIGHT", cog, "LEFT", 4, 0) -- overlaps its own transparent padding, so the gap matches the cog's
+
+    -- Search box and quest count in the band above the list.
+    searchBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    searchBox:SetSize(150, 20)
+    searchBox:SetPoint("TOPLEFT", 80, -44)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnTextChanged", function() ns.Refresh() end)
+    searchBox:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+    searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+
+    local searchHint = searchBox:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+    searchHint:SetPoint("LEFT", 2, 0)
+    searchHint:SetText(SEARCH or "Search")
+    searchBox:HookScript("OnTextChanged", function(self) searchHint:SetShown(self:GetText() == "") end)
+
+    countText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    countText:SetJustifyH("RIGHT")
+
+    -- Quest list (left page). Sizes are set in ns.ApplySize.
+    listScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+    listScroll:SetPoint("TOPLEFT", LIST_X, LIST_Y)
+    listChild = CreateFrame("Frame", nil, listScroll)
+    listChild:SetHeight(1)
+    listScroll:SetScrollChild(listChild)
+
+    emptyText = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    emptyText:SetWidth(200)
+    emptyText:SetPoint("CENTER", listScroll, "CENTER", -6, 16)
+
+    -- Details (right parchment page)
+    detailScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+    detailScroll:SetPoint("TOPRIGHT", DETAIL_RIGHT, DETAIL_Y)
+    detailChild = CreateFrame("Frame", nil, detailScroll)
+    detailChild:SetHeight(1)
+    detailScroll:SetScrollChild(detailChild)
+
+    -- Bottom buttons: Abandon | Share | Track along the left, Close on the right. The classic
+    -- log widens and lifts this bar when docked in the dual-pane window (QuestLogControlPanel_UpdatePosition).
+    local panel = CreateFrame("Frame", nil, frame)
+    panel:SetSize(307, 26)
+    panel:SetPoint("BOTTOMLEFT", 18, 11)
+
+    abandonBtn = MakeButton(panel, ABANDON_QUEST_ABBREV or "Abandon", 110, function()
+        local q = SelectedRow()
+        if q then
+            local dialog = StaticPopup_Show("FOREVERQUESTLOG_ABANDON", q.title)
+            if dialog then dialog.data = q.questID end
+        end
+    end)
+    abandonBtn:SetPoint("LEFT", 0, 1)
+
+    trackBtn = MakeButton(panel, TRACK_QUEST_ABBREV or "Track", 100, function()
+        local q = SelectedRow()
+        if q then ToggleWatch(q.questID) end
+    end)
+    trackBtn:SetPoint("RIGHT", -3, 1)
+
+    shareBtn = MakeButton(panel, SHARE_QUEST_ABBREV or "Share", 1, function()
+        local q = SelectedRow()
+        if q then
+            C_QuestLog.SetSelectedQuest(q.questID)
+            QuestLogPushQuest()
+        end
+    end)
+    shareBtn:SetPoint("LEFT", abandonBtn, "RIGHT")
+    shareBtn:SetPoint("RIGHT", trackBtn, "LEFT")
+
+    local closeBtn = MakeButton(frame, CLOSE or "Close", 80, function() frame:Hide() end)
+    closeBtn:SetHeight(22)
+    closeBtn:SetPoint("BOTTOMRIGHT", -7, 14)
+
+    frame:SetScript("OnShow", function()
+        ns.ApplyPosition()
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN or 844)
+        if dirty then ns.Refresh() end
+    end)
+    frame:SetScript("OnHide", function()
+        PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_CLOSE or 845)
+        searchBox:ClearFocus()
+    end)
+
+    ns.ApplySize()
+end
