@@ -1,0 +1,4 @@
+# kept out of release zips (git archive)
+.gitattributes export-ignore
+.gitignore export-ignore
+tools export-ignore
