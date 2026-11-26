@@ -1,4 +1,4 @@
-# Forever Quest Log
+# Forever Standalone Quest Log
 
 A classic-style quest log window for WoW Forever. Forever draws the modern quest log attached to the world map; this add-on brings back a standalone two-pane window in the old Classic look, opened with **L** at the classic spot on the left side of the screen.
 
@@ -22,7 +22,7 @@ A classic-style quest log window for WoW Forever. Forever draws the modern quest
 - `/fql reset` moves the window back to the left side of the screen
 - `/fql hooks` checks that tracker clicks are being redirected
 
-There's also a **Toggle Forever Quest Log** key binding under Key Bindings → AddOns.
+There's also a **Toggle Forever Standalone Quest Log** key binding under Key Bindings → AddOns.
 
 ## Notes
 

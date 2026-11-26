@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: Forever Quest Log
+## Title: Forever Standalone Quest Log
 ## Notes: A classic-style two-pane quest log window for WoW Forever: quest levels, difficulty colours, search, adjustable text and window size.
 ## Author: Tyler Santi
 ## Version: 1.0.0

@@ -28,7 +28,7 @@ local function CopyDefaults(dst, src)
 end
 
 function ns.Print(msg)
-    print("|cff66ccffForever Quest Log|r: " .. tostring(msg))
+    print("|cff66ccffForever Standalone Quest Log|r: " .. tostring(msg))
 end
 
 ------------------------------------------------------------------------
@@ -67,8 +67,8 @@ function ns.ApplyBindings()
 end
 
 -- Labels for the entry Bindings.xml adds under Key Bindings > AddOns.
-BINDING_HEADER_FOREVERQUESTLOG = "Forever Quest Log"
-BINDING_NAME_FOREVERQUESTLOG_TOGGLE = "Toggle Forever Quest Log"
+BINDING_HEADER_FOREVERQUESTLOG = "Forever Standalone Quest Log"
+BINDING_NAME_FOREVERQUESTLOG_TOGGLE = "Toggle Forever Standalone Quest Log"
 
 ------------------------------------------------------------------------
 -- Events
