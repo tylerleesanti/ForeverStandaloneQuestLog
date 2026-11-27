@@ -31,7 +31,7 @@ local BTN = "Interface\\Buttons\\"
 
 local frame, listScroll, listChild, detailScroll, detailChild
 local countText, searchBox, emptyText
-local abandonBtn, trackBtn, shareBtn
+local abandonBtn, trackBtn, shareBtn, mapBtn
 local rowPool = {}
 local rows = {}          -- current flat row data
 local selectedQuestID
@@ -370,6 +370,7 @@ local function UpdateDetails(q)
     trackBtn:SetText(q and q.watched and (UNTRACK_QUEST_ABBREV or "Untrack") or (TRACK_QUEST_ABBREV or "Track"))
     local canShare = q and IsInGroup() and C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(q.questID)
     shareBtn:SetEnabled(canShare and true or false)
+    mapBtn:SetEnabled(q ~= nil)
 end
 
 ------------------------------------------------------------------------
@@ -505,6 +506,88 @@ local function MakeButton(parent, label, width, onClick)
 end
 
 -- The classic cogwheel (UI-OptionsButton), left of the close button in the title bar.
+------------------------------------------------------------------------
+-- Show Map
+--
+-- Opens the world map on the selected quest's zone, with the quest selected so the map highlights
+-- it. Done the way Questie does it on Forever: select the quest, then let the client open the map
+-- (C_Map.OpenWorldMap). Calling the map's own Lua (QuestMapFrame_OpenToQuestDetails, or
+-- WorldMapFrame:SetMapID) from an add-on taints the map for the session, which later gets its
+-- buttons blocked in combat, and the client call is refused in combat anyway.
+------------------------------------------------------------------------
+local function QuestMapID(questID)
+    local id = GetQuestUiMapID and GetQuestUiMapID(questID)
+    if (not id or id == 0) and C_QuestLog.GetNextWaypoint then
+        id = C_QuestLog.GetNextWaypoint(questID)
+    end
+    if id and id ~= 0 then return id end
+end
+
+local function OpenMapToQuest(q)
+    if InCombatLockdown() then
+        UIErrorsFrame:AddMessage("Can't open the map in combat.", 1, 0.1, 0.1)
+        return
+    end
+    C_QuestLog.SetSelectedQuest(q.questID)
+    -- the quest's zone, or the player's own if the game doesn't know where the quest is
+    local mapID = QuestMapID(q.questID) or (C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player"))
+    if C_Map.OpenWorldMap and mapID then
+        C_Map.OpenWorldMap(mapID)
+    else
+        ToggleWorldMap()
+    end
+    frame:Hide() -- like the classic button, the map takes over from the log
+end
+
+-- The classic "Show Map" button: the label, then the little map picture (UI-QuestMap_Button's top
+-- half is the normal state, the bottom half pressed).
+local function MakeMapButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(32)
+    local art = b:CreateTexture(nil, "ARTWORK")
+    art:SetSize(48, 32)
+    art:SetPoint("RIGHT")
+    art:SetTexture(DQ .. "UI-QuestMap_Button")
+    art:SetTexCoord(0.125, 0.875, 0, 0.5)
+    local glow = b:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints(art)
+    glow:SetTexture(DQ .. "UI-QuestMap_Button")
+    glow:SetTexCoord(0.125, 0.875, 0, 0.5)
+    glow:SetBlendMode("ADD")
+    glow:SetAlpha(0.4)
+
+    local text = b:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    text:SetPoint("RIGHT", art, "LEFT", 2, 0)
+    text:SetText(SHOW_MAP or "Show Map")
+    b:SetWidth(48 + text:GetStringWidth())
+
+    b:SetScript("OnMouseDown", function(self)
+        if self:IsEnabled() then art:SetTexCoord(0.125, 0.875, 0.5, 1) end
+    end)
+    b:SetScript("OnMouseUp", function() art:SetTexCoord(0.125, 0.875, 0, 0.5) end)
+    b:SetScript("OnClick", function()
+        for _, r in ipairs(rows) do
+            if not r.isHeader and r.questID == selectedQuestID then return OpenMapToQuest(r) end
+        end
+    end)
+    b:SetScript("OnEnable", function()
+        art:SetDesaturated(false)
+        text:SetFontObject(GameFontNormal)
+    end)
+    b:SetScript("OnDisable", function()
+        art:SetDesaturated(true)
+        text:SetFontObject(GameFontDisable)
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(SHOW_MAP or "Show Map")
+        GameTooltip:AddLine("Open the world map at this quest's zone.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
 local function MakeCogButton(parent)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(16, 16)
@@ -697,6 +780,10 @@ function ns.CreateWindow()
     -- Padlock left of the cogwheel.
     local lock = MakeLockButton(frame)
     lock:SetPoint("RIGHT", cog, "LEFT", 4, 0) -- overlaps its own transparent padding, so the gap matches the cog's
+
+    -- Show Map, where the classic dual-pane log had it (QuestLogFrameShowMapButton: TOPRIGHT -25, -38).
+    mapBtn = MakeMapButton(frame)
+    mapBtn:SetPoint("TOPRIGHT", -25, -38)
 
     -- Search box and quest count in the band above the list.
     searchBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
