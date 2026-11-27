@@ -119,11 +119,38 @@ local function OnRowClick(row)
     ns.Refresh()
 end
 
+-- The tooltip shown while hovering a quest in the list: its objectives and progress, so quests can
+-- be checked without selecting each one, plus who in the party is on it.
+local function ShowRowTooltip(row, q)
+    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    GameTooltip:SetText(QuestLabel(q), QuestColor(q.level))
+    if q.failed then
+        GameTooltip:AddLine(FAILED or "Failed", 1, 0.2, 0.2)
+    elseif q.complete then
+        GameTooltip:AddLine("Ready to turn in", 0.2, 1, 0.2)
+    end
+    local objectives = C_QuestLog.GetQuestObjectives and C_QuestLog.GetQuestObjectives(q.questID)
+    for _, o in ipairs(objectives or {}) do
+        if o.text and o.text ~= "" then
+            if o.finished then
+                GameTooltip:AddLine("- " .. o.text, 0.5, 0.5, 0.5, true)
+            else
+                GameTooltip:AddLine("- " .. o.text, 1, 1, 1, true)
+            end
+        end
+    end
+    if q.party and #q.party > 0 then
+        GameTooltip:AddLine("Party: " .. table.concat(q.party, ", "), 0.6, 0.8, 1, true)
+    end
+    GameTooltip:Show()
+end
+
 -- Hovering a quest brightens its text, as in the classic log; leaving restores its colour.
 local function OnRowEnter(row)
     if row.data and not row.data.isHeader then
         row.text:SetTextColor(1, 1, 1)
         row.tag:SetTextColor(1, 1, 1)
+        if ns.db.listTooltips then ShowRowTooltip(row, row.data) end
     end
 end
 
@@ -133,6 +160,7 @@ local function OnRowLeave(row)
         row.text:SetTextColor(r, g, b)
         row.tag:SetTextColor(r, g, b)
     end
+    if GameTooltip:IsOwned(row) then GameTooltip:Hide() end
 end
 
 local function GetRow(i)
@@ -259,7 +287,12 @@ local function UpdateList()
             row.text:SetFontObject(ns.fonts.name)
             row.text:SetText(QuestLabel(r))
             row.text:SetTextColor(cr, cg, cb)
-            row.tag:SetText(QuestTag(r) or "")
+            -- Party members on the quest, as a count before the tag: [2] (Complete)
+            local tag = QuestTag(r) or ""
+            if r.party and #r.party > 0 then
+                tag = ("|cff99ccff[%d]|r%s"):format(#r.party, tag ~= "" and (" " .. tag) or "")
+            end
+            row.tag:SetText(tag)
             row.tag:SetTextColor(cr, cg, cb)
             local isSelected = r.questID == selectedQuestID
             row.selected:SetShown(isSelected)
@@ -314,6 +347,83 @@ local function DetailLine(i, font)
     return fs
 end
 
+-- Reward item buttons, as the classic log drew them: the icon with its count, and the name on the
+-- name-frame tab beside it, two to a row. Hover for the tooltip (Shift compares), Shift-click to
+-- link it, Ctrl-click to try it on.
+local itemButtons = {}
+local ITEM_COL, ITEM_ROW = 147, 44
+
+local function ItemTooltip(b)
+    GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+    local ok = pcall(GameTooltip.SetQuestLogItem, GameTooltip, b.item.kind, b.item.index, b.item.questID)
+    if not ok then pcall(GameTooltip.SetQuestLogItem, GameTooltip, b.item.kind, b.item.index) end
+    if GameTooltip_ShowCompareItem then pcall(GameTooltip_ShowCompareItem, GameTooltip) end
+    GameTooltip:Show()
+end
+
+local function ItemButton(i)
+    local b = itemButtons[i]
+    if b then return b end
+    b = CreateFrame("Button", nil, detailChild)
+    b:SetSize(ITEM_COL - 4, 40)
+    b:RegisterForClicks("LeftButtonUp")
+
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(37, 37)
+    b.icon:SetPoint("TOPLEFT", 0, 0)
+    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    b.count:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", -2, 2)
+    b.count:SetJustifyH("RIGHT")
+
+    local nameFrame = b:CreateTexture(nil, "BACKGROUND")
+    nameFrame:SetSize(128, 64)
+    nameFrame:SetPoint("LEFT", b.icon, "RIGHT", -10, 0)
+    nameFrame:SetTexture(DQ .. "UI-QuestItemNameFrame")
+    b.name = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    b.name:SetSize(90, 36)
+    b.name:SetPoint("LEFT", nameFrame, "LEFT", 15, 0)
+    b.name:SetJustifyH("LEFT")
+    b.name:SetShadowOffset(0, 0)
+
+    local glow = b:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints(b.icon)
+    glow:SetTexture(BTN .. "ButtonHilight-Square")
+    glow:SetBlendMode("ADD")
+
+    b:SetScript("OnEnter", ItemTooltip)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Holding or letting go of Shift while hovering redraws the tooltip with or without the comparison.
+    b:SetScript("OnUpdate", function(self)
+        if not GameTooltip:IsOwned(self) then return end
+        local shift = IsModifiedClick("COMPAREITEMS")
+        if shift ~= self.lastShift then
+            self.lastShift = shift
+            ItemTooltip(self)
+        end
+    end)
+    b:SetScript("OnClick", function(self)
+        local link = GetQuestLogItemLink and GetQuestLogItemLink(self.item.kind, self.item.index, self.item.questID)
+        if link and HandleModifiedItemClick then HandleModifiedItemClick(link) end
+    end)
+    itemButtons[i] = b
+    return b
+end
+
+local function SetItemButton(b, item)
+    b.item = item
+    b.icon:SetTexture(item.texture or 134400) -- question mark until the item loads
+    if item.usable == false then
+        b.icon:SetVertexColor(0.9, 0, 0)
+    else
+        b.icon:SetVertexColor(1, 1, 1)
+    end
+    b.count:SetText(item.count and item.count > 1 and item.count or "")
+    b.name:SetText(item.name or RETRIEVING_ITEM_INFO or "Loading...")
+    b.name:SetTextColor(TEXT_R, TEXT_G, TEXT_B)
+    b.lastShift = nil
+    b:Show()
+end
+
 local function UpdateDetails(q)
     local lines = {}
     local titleFont = ns.fonts.title
@@ -334,13 +444,43 @@ local function UpdateDetails(q)
             end
         end
 
+        -- From Questie's database: who gives and takes the quest, its level and its chain.
+        local qi = d.questie
+        if qi then
+            local gap = 10
+            local function info(label, value)
+                if value then
+                    add(bodyFont, label .. ": " .. value, TEXT_R, TEXT_G, TEXT_B, gap)
+                    gap = 2
+                end
+            end
+            info("Given by", qi.giver)
+            info("Turn in to", qi.finisher)
+            info("Required level", qi.requiredLevel)
+            info("Follows", qi.previous)
+            info("Leads to", qi.nextQuest)
+        end
+        if q.party and #q.party > 0 then
+            add(bodyFont, "Party members on this quest: " .. table.concat(q.party, ", "), TEXT_R, TEXT_G, TEXT_B, 6)
+        end
+
         if d.description then
             add(titleFont, QUEST_DESCRIPTION or "Description", TITLE_R, TITLE_G, TITLE_B, 14)
             add(bodyFont, d.description, TEXT_R, TEXT_G, TEXT_B, 6)
         end
 
-        if d.xp or d.money then
+        local hasChoices, hasRewards = #d.choices > 0, #d.rewards > 0
+        if d.xp or d.money or hasChoices or hasRewards then
             add(titleFont, REWARDS or "Rewards", TITLE_R, TITLE_G, TITLE_B, 14)
+            if hasChoices then
+                add(bodyFont, REWARD_CHOICES or "You will be able to choose one of these rewards:", TEXT_R, TEXT_G, TEXT_B, 6)
+                lines[#lines + 1] = { items = d.choices, gap = 4 }
+            end
+            if hasRewards then
+                add(bodyFont, hasChoices and (REWARD_ITEMS or "You will also receive:")
+                    or (REWARD_ITEMS_ONLY or "You will receive:"), TEXT_R, TEXT_G, TEXT_B, 6)
+                lines[#lines + 1] = { items = d.rewards, gap = 4 }
+            end
             if d.xp then
                 local xp = BreakUpLargeNumbers and BreakUpLargeNumbers(d.xp) or d.xp
                 add(bodyFont, ("Experience: %s"):format(xp), TEXT_R, TEXT_G, TEXT_B, 6)
@@ -352,16 +492,34 @@ local function UpdateDetails(q)
     end
 
     local y = 0
-    for i, l in ipairs(lines) do
-        local fs = DetailLine(i, l.font)
-        fs:SetText(l.text)
-        fs:SetTextColor(l.r, l.g, l.b)
+    local numText, numItems = 0, 0
+    local cols = textW >= ITEM_COL * 2 and 2 or 1 -- a narrow window fits one item per row
+    for _, l in ipairs(lines) do
         y = y + l.gap
-        fs:ClearAllPoints()
-        fs:SetPoint("TOPLEFT", 4, -y)
-        y = y + fs:GetStringHeight()
+        if l.items then
+            for k, item in ipairs(l.items) do
+                numItems = numItems + 1
+                local b = ItemButton(numItems)
+                SetItemButton(b, item)
+                b:ClearAllPoints()
+                b:SetPoint("TOPLEFT", 4 + ((k - 1) % cols) * ITEM_COL, -(y + math.floor((k - 1) / cols) * ITEM_ROW))
+            end
+            y = y + math.ceil(#l.items / cols) * ITEM_ROW
+        else
+            numText = numText + 1
+            local fs = DetailLine(numText, l.font)
+            fs:SetText(l.text)
+            fs:SetTextColor(l.r, l.g, l.b)
+            fs:ClearAllPoints()
+            fs:SetPoint("TOPLEFT", 4, -y)
+            y = y + fs:GetStringHeight()
+        end
     end
-    for i = #lines + 1, #detailLines do detailLines[i]:Hide() end
+    for i = numText + 1, #detailLines do detailLines[i]:Hide() end
+    for i = numItems + 1, #itemButtons do
+        itemButtons[i]:Hide()
+        itemButtons[i].item = nil
+    end
     detailChild:SetHeight(math.max(1, y + 8))
 
     -- Bottom buttons follow the selected quest.

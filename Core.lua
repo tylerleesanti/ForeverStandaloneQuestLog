@@ -5,6 +5,7 @@ local ADDON, ns = ...
 ns.defaults = {
     replaceKey = true,    -- the key bound to "Toggle Quest Log" (L) opens this window instead of the map
     trackerOpensLog = true, -- clicking a quest in Blizzard's or Questie's tracker opens it here
+    listTooltips = true,  -- hovering a quest in the list shows its objectives
     showLevels = true,    -- "[12] Quest name"
     colorByLevel = true,  -- difficulty colours (grey / green / yellow / orange / red)
     headerColor = { 1, 1, 1 }, -- zone titles: white, so they never look like a (yellow) quest
@@ -81,6 +82,8 @@ events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
 events:RegisterEvent("PLAYER_LEVEL_UP")
+events:RegisterEvent("GROUP_ROSTER_UPDATE")    -- party members on each quest
+events:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
 
 events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then

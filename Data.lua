@@ -39,6 +39,19 @@ local function ExpandGameHeaders()
     end
 end
 
+-- Names of the party members who are also on a quest (an empty list when solo or in a raid,
+-- where the game only reports party units).
+function ns.PartyOnQuest(questID)
+    local names = {}
+    if not C_QuestLog.IsUnitOnQuest or IsInRaid() then return names end
+    for i = 1, GetNumSubgroupMembers() do
+        local unit = "party" .. i
+        local ok, onQuest = pcall(C_QuestLog.IsUnitOnQuest, unit, questID)
+        if ok and onQuest then names[#names + 1] = UnitName(unit) or "?" end
+    end
+    return names
+end
+
 -- filter: lower-case search text, or nil. A header is kept if its name matches (then all of its
 -- quests show) or if any of its quests match.
 function ns.BuildRows(filter)
@@ -67,6 +80,7 @@ function ns.BuildRows(filter)
                     complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID),
                     failed = C_QuestLog.IsFailed and C_QuestLog.IsFailed(info.questID),
                     watched = IsWatched(info.questID),
+                    party = ns.PartyOnQuest(info.questID),
                 }
                 if not header then -- quests before any header (rare): give them one
                     header = { isHeader = true, title = OTHER or "Other", count = 0, children = {} }
@@ -93,6 +107,107 @@ function ns.BuildRows(filter)
         end
     end
     return flat, numQuests, MaxQuests()
+end
+
+-- Item rewards: "choice" (pick one) or "reward" (always given). An item the client hasn't loaded
+-- yet comes back without a name; the window is refreshed once it loads.
+local requested = {}
+
+local function RewardItems(kind, questID)
+    local count, info
+    if kind == "choice" then
+        count, info = GetNumQuestLogChoices, GetQuestLogChoiceInfo
+    else
+        count, info = GetNumQuestLogRewards, GetQuestLogRewardInfo
+    end
+    local items = {}
+    if not count or not info then return items end
+    local ok, n = pcall(count, questID, true)
+    if not ok or type(n) ~= "number" then return items end
+    for i = 1, n do
+        local okInfo, name, texture, num, quality, usable, itemID = pcall(info, i, questID)
+        if okInfo and (name or texture or itemID) then
+            items[#items + 1] = { kind = kind, index = i, questID = questID, name = name, texture = texture,
+                count = num, quality = quality, usable = usable, itemID = itemID }
+            if not name and itemID and not requested[itemID] and Item and Item.CreateFromItemID then
+                requested[itemID] = true
+                Item:CreateFromItemID(itemID):ContinueOnItemLoad(function() ns.MarkDirty() end)
+            end
+        end
+    end
+    return items
+end
+
+------------------------------------------------------------------------
+-- Questie's quest database: who gives and takes the quest, where, its required level and chain.
+-- Read straight from Questie's modules, all inside pcall: Questie can change between versions,
+-- and a missing piece only leaves that line out.
+------------------------------------------------------------------------
+local function QuestieModule(name)
+    local modules = _G.QuestieLoader and QuestieLoader._modules
+    return modules and modules[name]
+end
+ns.QuestieModule = QuestieModule
+
+local function AreaName(areaID)
+    if not areaID then return nil end
+    local name = C_Map.GetAreaInfo and C_Map.GetAreaInfo(areaID)
+    if name and name ~= "" then return name end
+    local Z = QuestieModule("ZoneDB")
+    local ok, mapID = pcall(function() return Z:GetUiMapIdByAreaId(areaID) end)
+    local info = ok and mapID and C_Map.GetMapInfo(mapID)
+    return info and info.name
+end
+
+-- The nearest NPC or object of a Starts / Finisher list, as "Name (Zone)".
+local function NearestPerson(list)
+    local DU = QuestieModule("DistanceUtils")
+    if not list or not DU then return nil end
+    local ok, _, zone, name = pcall(DU.GetNearestFinisherOrStarter, list)
+    if not ok or not name then return nil end
+    local area = AreaName(zone)
+    return area and ("%s (%s)"):format(name, area) or name
+end
+
+local function QuestName(DB, questID)
+    local ok, name = pcall(DB.QueryQuestSingle, questID, "name")
+    return ok and type(name) == "string" and name or nil
+end
+
+local questieCache = {}
+
+function ns.QuestieInfo(questID)
+    local DB = QuestieModule("QuestieDB")
+    if not DB or type(DB.GetQuest) ~= "function" then return nil end
+    local ok, quest = pcall(DB.GetQuest, questID)
+    if not ok or type(quest) ~= "table" then return nil end
+    local info = {}
+
+    -- Giver: an NPC or object, or an item that starts the quest.
+    info.giver = NearestPerson(quest.Starts)
+    if not info.giver and quest.Starts and type(quest.Starts.Item) == "table" and quest.Starts.Item[1] then
+        local okItem, item = pcall(DB.GetItem, DB, quest.Starts.Item[1])
+        if okItem and type(item) == "table" and item.name then info.giver = item.name end
+    end
+    info.finisher = NearestPerson(quest.Finisher)
+
+    if type(quest.requiredLevel) == "number" and quest.requiredLevel > 0 then
+        info.requiredLevel = quest.requiredLevel
+    end
+
+    -- Chain: the quest before this one (when there's exactly one) and the next one.
+    local cached = questieCache[questID]
+    if not cached then
+        cached = {}
+        if type(quest.preQuestSingle) == "table" and #quest.preQuestSingle == 1 then
+            cached.previous = QuestName(DB, quest.preQuestSingle[1])
+        end
+        local nextID = quest.nextQuestInChain
+        if type(nextID) == "number" and nextID > 0 then cached.nextQuest = QuestName(DB, nextID) end
+        questieCache[questID] = cached
+    end
+    info.previous, info.nextQuest = cached.previous, cached.nextQuest
+    return info
 end
 
 -- Everything the details pane shows for one quest.
@@ -127,5 +242,8 @@ function ns.GetDetails(q)
         local ok, money = pcall(GetQuestLogRewardMoney, q.questID)
         if ok and type(money) == "number" and money > 0 then d.money = money end
     end
+    d.choices = RewardItems("choice", q.questID)
+    d.rewards = RewardItems("reward", q.questID)
+    d.questie = ns.QuestieInfo(q.questID)
     return d
 end

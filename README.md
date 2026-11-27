@@ -7,11 +7,14 @@ A classic-style quest log window for WoW Forever. Forever draws the modern quest
 - **Classic two-pane window.** Quest list on the left page, quest details on the parchment on the right, in the original Classic quest log art, buttons and close button.
 - **Quest levels and difficulty colours.** `[24] Quest name`, coloured grey / green / yellow / orange / red by difficulty, with Elite, Dungeon, (Complete) and (Failed) tags.
 - **Search** by quest name or zone, and **collapsible zones** that don't affect the game's own map log.
-- **Details page** with objectives and progress (finished ones greyed out), the description, and XP and money rewards.
+- **Details page** with objectives and progress (finished ones greyed out), the description, and the rewards: XP, money and reward items. Hover an item for its tooltip (Shift compares it with what you're wearing), Shift-click to link it, Ctrl-click to try it on.
+- **Questie details.** With Questie installed, the details page shows who gives the quest and who you turn it in to (and in which zone), its required level, and the quest before and after it in its chain.
+- **Hover tooltips.** Hover a quest in the list to see its objectives and progress without selecting it.
+- **Party members on the quest.** A count next to each quest your party shares, and their names on the details page.
 - **Abandon, Share and Track** buttons. Shift-click a quest to link it in chat, Ctrl-click to track or untrack it.
 - **Show Map** button: opens the world map at the zone where the quest is turned in (once it's complete) or where its objectives are. Uses Questie's quest data when Questie is installed; otherwise the game's own quest location, or your current zone.
 - **Quest clicks open this window.** Clicking a quest in Questie's tracker or Blizzard's (including its right-click "View in Quest Log"), or clicking a quest timer, opens it here instead of on the world map. The micro menu's Quest Log button opens this window too, like L.
-- **Settings** (cogwheel): text size for quest names, zone titles and quest text, zone title colour, window width and height, and toggles for levels, colours, the L key and quest clicks.
+- **Settings** (cogwheel): text size for quest names, zone titles and quest text, zone title colour, window width and height, and toggles for levels, colours, list tooltips, the L key and quest clicks.
 - **Lock** (padlock): left-click to lock or unlock dragging, right-click to put the window back at the classic left-side spot.
 
 ## Commands
