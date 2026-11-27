@@ -222,10 +222,29 @@ function ns.ToggleSettings()
     if panel then panel:SetShown(not panel:IsShown()) end
 end
 
+-- The panel sits against the window's right edge, so dragging the width slider would move the
+-- panel (and the slider under the cursor) with every step. While that slider is held, the panel is
+-- pinned to the screen where it is; on release it goes back against the window's new edge.
+local settingsWindow
+
+local function AttachPanel()
+    panel:ClearAllPoints()
+    panel:SetPoint("TOPLEFT", settingsWindow, "TOPRIGHT", -4, -12)
+end
+
+local function FreezePanel()
+    local left, top = panel:GetLeft(), panel:GetTop()
+    if not left or not top then return end
+    panel:ClearAllPoints()
+    -- GetLeft/GetTop and SetPoint offsets are both in the panel's own scale, so no conversion.
+    panel:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+end
+
 function ns.CreateSettings(window)
+    settingsWindow = window
     panel = CreateFrame("Frame", "ForeverQuestLogSettingsFrame", window, "BackdropTemplate")
     panel:SetSize(270, 530)
-    panel:SetPoint("TOPLEFT", window, "TOPRIGHT", -4, -12)
+    AttachPanel()
     panel:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -246,7 +265,7 @@ function ns.CreateSettings(window)
     anchor:SetPoint("TOPLEFT", 26, -44)
 
     local s1 = MakeSlider("Quest name size", "fontName", anchor, -22)
-    local s2 = MakeSlider("Area title size", "fontHeader", s1, -38)
+    local s2 = MakeSlider("Category title size", "fontHeader", s1, -38)
     local s3 = MakeSlider("Quest text size", "fontText", s2, -38)
 
     -- Window size. The classic size is the default; below the minimums the pages get too narrow to read.
@@ -255,6 +274,9 @@ function ns.CreateSettings(window)
         min = 560, max = 1400, step = 10,
         default = function() return ns.DEFAULT_WIDTH end, apply = applySize,
     })
+    s4:HookScript("OnMouseDown", FreezePanel)
+    s4:HookScript("OnMouseUp", AttachPanel)
+    s4:HookScript("OnHide", AttachPanel) -- closed mid-drag
     local s5 = MakeSlider("Window height", "height", s4, -38, {
         min = 360, max = 1000, step = 10,
         default = function() return ns.DEFAULT_HEIGHT end, apply = applySize,
@@ -271,7 +293,7 @@ function ns.CreateSettings(window)
     local c5 = MakeCheck("Quest tooltips in the list", "listTooltips", c4, 0)
     c5:SetPoint("TOPLEFT", c4, "BOTTOMLEFT", 0, 2)
 
-    MakeColorSwatch("Area title colour", c5, -12)
+    MakeColorSwatch("Category title colour", c5, -12)
 
     local reset = CreateFrame("Button", nil, panel)
     reset:SetSize(140, 21)

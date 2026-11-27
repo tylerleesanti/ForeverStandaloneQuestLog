@@ -8,7 +8,7 @@ ns.defaults = {
     listTooltips = true,  -- hovering a quest in the list shows its objectives
     showLevels = true,    -- "[12] Quest name"
     colorByLevel = true,  -- difficulty colours (grey / green / yellow / orange / red)
-    headerColor = { 1, 1, 1 }, -- zone titles: white, so they never look like a (yellow) quest
+    headerColor = { 1, 1, 1 }, -- category titles: white, so they never look like a (yellow) quest
     collapsed = {},       -- [header title] = true, our own collapse state (the game's is left alone)
     point = nil,          -- saved window position { point, relPoint, x, y }
     locked = false,       -- true: the window can't be dragged (padlock button)
