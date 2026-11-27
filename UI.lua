@@ -523,12 +523,28 @@ local function QuestMapID(questID)
     if id and id ~= 0 then return id end
 end
 
+-- With Questie: its tracker's "show on map" opens the map at the nearest turn-in for a completed
+-- quest, or the nearest unfinished objective otherwise, and flashes the quest's icons there. It
+-- opens the map through the same client call. Returns true if Questie handled it.
+local function QuestieShowOnMap(questID)
+    local modules = _G.QuestieLoader and QuestieLoader._modules
+    local utils = modules and modules.TrackerUtils
+    if not (utils and type(utils.ShowQuestOnMap) == "function") then return false end
+    local ok, shown = pcall(utils.ShowQuestOnMap, questID)
+    return ok and shown == true
+end
+
 local function OpenMapToQuest(q)
     if InCombatLockdown() then
         UIErrorsFrame:AddMessage("Can't open the map in combat.", 1, 0.1, 0.1)
         return
     end
     C_QuestLog.SetSelectedQuest(q.questID)
+    if QuestieShowOnMap(q.questID) then
+        frame:Hide()
+        return
+    end
+    -- Without Questie (or a quest it doesn't know): the game's own idea of where the quest is.
     -- the quest's zone, or the player's own if the game doesn't know where the quest is
     local mapID = QuestMapID(q.questID) or (C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player"))
     if C_Map.OpenWorldMap and mapID then
@@ -581,7 +597,7 @@ local function MakeMapButton(parent)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(SHOW_MAP or "Show Map")
-        GameTooltip:AddLine("Open the world map at this quest's zone.", 1, 1, 1, true)
+        GameTooltip:AddLine("Open the world map where this quest takes you next: the turn-in once it's complete, otherwise its objectives (with Questie).", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
