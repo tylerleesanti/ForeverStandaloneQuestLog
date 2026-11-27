@@ -380,6 +380,12 @@ local function ItemButton(i)
     nameFrame:SetSize(128, 64)
     nameFrame:SetPoint("LEFT", b.icon, "RIGHT", -10, 0)
     nameFrame:SetTexture(DQ .. "UI-QuestItemNameFrame")
+    -- A second copy of the tab, drawn additively, lifts the rarity colour into it (tinting alone
+    -- only darkens the tab, which hardly shows).
+    b.nameGlow = b:CreateTexture(nil, "BORDER")
+    b.nameGlow:SetAllPoints(nameFrame)
+    b.nameGlow:SetTexture(DQ .. "UI-QuestItemNameFrame")
+    b.nameGlow:SetBlendMode("ADD")
     b.name = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     b.name:SetSize(90, 36)
     b.name:SetPoint("LEFT", nameFrame, "LEFT", 15, 0)
@@ -432,10 +438,18 @@ local function SetItemButton(b, item)
     end
     r, g, bl = r or 1, g or 1, bl or 1
     b.name:SetTextColor(r, g, bl)
-    -- The tab behind the name gets a light wash of the same colour: halfway between its own art
-    -- (white = untinted) and the rarity colour, so common items keep the plain tab.
-    local TINT = 0.5
-    b.nameFrame:SetVertexColor(1 - TINT + TINT * r, 1 - TINT + TINT * g, 1 - TINT + TINT * bl)
+    -- The tab behind the name takes on the same colour: tinted most of the way to the rarity colour,
+    -- plus an additive glow of it. Common (white) and unknown items keep the plain tab.
+    local TINT, GLOW = 0.8, 0.35
+    local plain = r > 0.95 and g > 0.95 and bl > 0.95
+    if plain then
+        b.nameFrame:SetVertexColor(1, 1, 1)
+        b.nameGlow:Hide()
+    else
+        b.nameFrame:SetVertexColor(1 - TINT + TINT * r, 1 - TINT + TINT * g, 1 - TINT + TINT * bl)
+        b.nameGlow:SetVertexColor(r, g, bl, GLOW)
+        b.nameGlow:Show()
+    end
     b.lastShift = nil
     b:Show()
 end
