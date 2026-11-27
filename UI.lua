@@ -351,7 +351,7 @@ end
 -- name-frame tab beside it, two to a row. Hover for the tooltip (Shift compares), Shift-click to
 -- link it, Ctrl-click to try it on.
 local itemButtons = {}
-local ITEM_COL, ITEM_ROW = 147, 44
+local ITEM_COL, ITEM_ROW = 147, 44 -- the classic column spacing; narrowed to fit two per row
 
 local function ItemTooltip(b)
     GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
@@ -376,6 +376,7 @@ local function ItemButton(i)
     b.count:SetJustifyH("RIGHT")
 
     local nameFrame = b:CreateTexture(nil, "BACKGROUND")
+    b.nameFrame = nameFrame
     nameFrame:SetSize(128, 64)
     nameFrame:SetPoint("LEFT", b.icon, "RIGHT", -10, 0)
     nameFrame:SetTexture(DQ .. "UI-QuestItemNameFrame")
@@ -503,7 +504,12 @@ local function UpdateDetails(q)
 
     local y = 0
     local numText, numItems = 0, 0
-    local cols = textW >= ITEM_COL * 2 and 2 or 1 -- a narrow window fits one item per row
+    -- Two items per row: each column is half the text width (at most the classic 147), and the
+    -- name tab shrinks to fit. Only a very narrow window falls back to one per row.
+    local colW = math.min(ITEM_COL, math.floor(textW / 2))
+    local cols = 2
+    if colW < 110 then cols, colW = 1, math.min(ITEM_COL * 1.5, textW) end
+    local tabW = math.min(128, colW - 27) -- the tab starts 10px inside the 37px icon
     for _, l in ipairs(lines) do
         y = y + l.gap
         if l.items then
@@ -511,8 +517,11 @@ local function UpdateDetails(q)
                 numItems = numItems + 1
                 local b = ItemButton(numItems)
                 SetItemButton(b, item)
+                b:SetWidth(colW - 4)
+                b.nameFrame:SetWidth(tabW)
+                b.name:SetWidth(tabW - 24)
                 b:ClearAllPoints()
-                b:SetPoint("TOPLEFT", 4 + ((k - 1) % cols) * ITEM_COL, -(y + math.floor((k - 1) / cols) * ITEM_ROW))
+                b:SetPoint("TOPLEFT", 4 + ((k - 1) % cols) * colW, -(y + math.floor((k - 1) / cols) * ITEM_ROW))
             end
             y = y + math.ceil(#l.items / cols) * ITEM_ROW
         else
