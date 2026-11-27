@@ -93,6 +93,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             ns.db.point = nil
             ns.db.layout = 2
         end
+        ns.db.lastShowMap = nil -- a Show Map diagnostic record from a test build; no longer written
         ns.ApplyFonts()
         ns.CreateWindow()
     elseif event == "PLAYER_LOGIN" or event == "UPDATE_BINDINGS" then

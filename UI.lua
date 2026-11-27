@@ -586,24 +586,11 @@ local function OpenMapToQuest(q)
         return
     end
     C_QuestLog.SetSelectedQuest(q.questID)
-    -- Each click leaves a short record in the saved settings (ForeverQuestLogDB.lastShowMap) of how the
-    -- map was chosen and what the map showed just after, for working out a wrong zone after a /reload.
-    local log = { quest = q.title, questID = q.questID, steps = {} }
-    ns.db.lastShowMap = log
-    local mapID, questieQuest = ResolveQuestMap(q.questID, function(line) log.steps[#log.steps + 1] = line end)
-    log.requested = mapID
+    local mapID, questieQuest = ResolveQuestMap(q.questID)
     if C_Map.OpenWorldMap and mapID then
-        log.method = "C_Map.OpenWorldMap"
         C_Map.OpenWorldMap(mapID)
     else
-        log.method = "ToggleWorldMap"
         ToggleWorldMap()
-    end
-    for _, delay in ipairs({ 0, 0.5 }) do
-        C_Timer.After(delay, function()
-            local shown = WorldMapFrame and WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
-            log["shownAfter" .. delay] = ("%s (%s)"):format(tostring(shown), MapName(shown))
-        end)
     end
     frame:Hide() -- like the classic button, the map takes over from the log
     -- With Questie, flash the quest's icons on the map so the turn-in or objective stands out.
