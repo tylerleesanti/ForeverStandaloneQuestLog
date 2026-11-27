@@ -503,7 +503,11 @@ local function UpdateDetails(q)
 
     local y = 0
     local numText, numItems = 0, 0
-    local cols = textW >= ITEM_COL * 2 and 2 or 1 -- a narrow window fits one item per row
+    -- Items per row follow the window width: a column every ITEM_COL, and the last item needs about
+    -- ITEM_FIT for its icon and the visible part of its name tab. Two fit at the classic size,
+    -- one when the window is made narrower, three or more when it's made much wider.
+    local ITEM_FIT = 130
+    local cols = math.max(1, math.floor((textW - ITEM_FIT) / ITEM_COL) + 1)
     for _, l in ipairs(lines) do
         y = y + l.gap
         if l.items then
