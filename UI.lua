@@ -376,6 +376,7 @@ local function ItemButton(i)
     b.count:SetJustifyH("RIGHT")
 
     local nameFrame = b:CreateTexture(nil, "BACKGROUND")
+    b.nameFrame = nameFrame
     nameFrame:SetSize(128, 64)
     nameFrame:SetPoint("LEFT", b.icon, "RIGHT", -10, 0)
     nameFrame:SetTexture(DQ .. "UI-QuestItemNameFrame")
@@ -429,7 +430,12 @@ local function SetItemButton(b, item)
             r, g, bl = GetItemQualityColor(item.quality)
         end
     end
-    b.name:SetTextColor(r or 1, g or 1, bl or 1)
+    r, g, bl = r or 1, g or 1, bl or 1
+    b.name:SetTextColor(r, g, bl)
+    -- The tab behind the name gets a light wash of the same colour: halfway between its own art
+    -- (white = untinted) and the rarity colour, so common items keep the plain tab.
+    local TINT = 0.5
+    b.nameFrame:SetVertexColor(1 - TINT + TINT * r, 1 - TINT + TINT * g, 1 - TINT + TINT * bl)
     b.lastShift = nil
     b:Show()
 end
