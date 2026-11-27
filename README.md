@@ -9,6 +9,7 @@ A classic-style quest log window for WoW Forever. Forever draws the modern quest
 - **Search** by quest name or zone, and **collapsible zones** that don't affect the game's own map log.
 - **Details page** with objectives and progress (finished ones greyed out), the description, and XP and money rewards.
 - **Abandon, Share and Track** buttons. Shift-click a quest to link it in chat, Ctrl-click to track or untrack it.
+- **Show Map** button: opens the world map at the zone where the quest is turned in (once it's complete) or where its objectives are. Uses Questie's quest data when Questie is installed; otherwise the game's own quest location, or your current zone.
 - **Tracker clicks open this window.** Clicking a quest in Questie's tracker (or Blizzard's) opens it here instead of on the world map.
 - **Settings** (cogwheel): text size for quest names, zone titles and quest text, zone title colour, window width and height, and toggles for levels, colours, the L key and tracker clicks.
 - **Lock** (padlock): left-click to lock or unlock dragging, right-click to put the window back at the classic left-side spot.
