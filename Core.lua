@@ -130,10 +130,11 @@ SlashCmdList.FOREVERQUESTLOG = function(msg)
         ns.MarkDirty(true)
         ns.Print("Difficulty colours " .. (ns.db.colorByLevel and "on." or "off."))
     elseif msg == "hooks" then
-        local blizz, questie = ns.HookStatus()
-        ns.Print(("Tracker hooks: Blizzard tracker %s, Questie tracker %s."):format(
-            blizz > 0 and "|cff20ff20hooked|r" or "|cffff2020not found|r",
-            questie and "|cff20ff20hooked|r" or "|cffff2020not found|r"))
+        local parts = {}
+        for _, hook in ipairs(ns.HookStatus()) do
+            parts[#parts + 1] = hook[1] .. " " .. (hook[2] and "|cff20ff20hooked|r" or "|cffff2020not found|r")
+        end
+        ns.Print("Redirected: " .. table.concat(parts, ", ") .. ".")
     elseif msg == "map" then
         ns.DebugQuestMap()
     elseif msg == "reset" then
@@ -146,6 +147,6 @@ SlashCmdList.FOREVERQUESTLOG = function(msg)
         ns.Print("/fql levels - toggle [level] prefixes")
         ns.Print("/fql colors - toggle difficulty colours")
         ns.Print("/fql reset - reset the window position")
-        ns.Print("/fql hooks - check that tracker clicks are being redirected")
+        ns.Print("/fql hooks - check which quest clicks are being redirected")
     end
 end

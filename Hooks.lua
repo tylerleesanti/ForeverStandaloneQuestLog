@@ -59,7 +59,95 @@ local function HookQuestie()
 end
 
 ------------------------------------------------------------------------
--- Both trackers can load after this add-on, so try again as add-ons load.
+-- The Quest Log micro button (on the micro menu, which Bartender4 also shows)
+--
+-- Its click runs ToggleQuestLog, the same as L. When L opens this window, the button does too;
+-- in quick keybind mode it keeps the game's handler so the button can still be bound.
+------------------------------------------------------------------------
+local microHooked = false
+
+local function HookMicroButton()
+    local button = _G.QuestLogMicroButton
+    if microHooked or not button then return end
+    local original = button:GetScript("OnClick")
+    if not original then return end
+    microHooked = true
+    button:SetScript("OnClick", function(self, ...)
+        local quickKeybind = KeybindFrames_InQuickKeybindMode and KeybindFrames_InQuickKeybindMode()
+        if ns.db.replaceKey and not quickKeybind then
+            ns.Toggle()
+            return
+        end
+        return original(self, ...)
+    end)
+end
+
+------------------------------------------------------------------------
+-- Blizzard's quest details pop-up (QuestLogPopupDetailFrame)
+--
+-- The tracker's right-click "View in Quest Log" entry calls QuestUtil.OpenQuestDetails, which ends
+-- in QuestLogPopupDetailFrame:ShowQuest. Like the tracker, the method is replaced on that frame only.
+------------------------------------------------------------------------
+local popupHooked = false
+
+local function HookPopup()
+    local popup = _G.QuestLogPopupDetailFrame
+    if popupHooked or not popup or type(popup.ShowQuest) ~= "function" then return end
+    popupHooked = true
+    local original = popup.ShowQuest
+    popup.ShowQuest = function(self, questID, ...)
+        if ns.db.trackerOpensLog and ns.OpenToQuest(questID) then
+            return
+        end
+        return original(self, questID, ...)
+    end
+end
+
+------------------------------------------------------------------------
+-- Quest timers (the box timed quests show; Blizzard_QuestTimer)
+--
+-- Clicking a timer runs QuestTimerButtonMixin:OnClick, which opens the map log (or, in the classic
+-- variant, a QuestLogFrame Forever doesn't have). The timer buttons come from a pool and copy the
+-- mixin when they're made, so the mixin is changed for buttons made later and any that already
+-- exist are changed directly.
+------------------------------------------------------------------------
+local timerHooked = false
+
+local function TimerQuestID(button)
+    if button.questID then return button.questID end
+    -- The classic variant keeps a timer index instead of a quest ID.
+    local index = GetQuestIndexForTimer and button.GetID and GetQuestIndexForTimer(button:GetID())
+    local info = index and C_QuestLog.GetInfo and C_QuestLog.GetInfo(index)
+    return info and info.questID
+end
+
+local function WrapTimerClick(original)
+    return function(self, ...)
+        if ns.db.trackerOpensLog and ns.OpenToQuest(TimerQuestID(self)) then
+            return
+        end
+        return original(self, ...)
+    end
+end
+
+local function HookQuestTimer()
+    local mixin = _G.QuestTimerButtonMixin
+    if timerHooked or type(mixin) ~= "table" or type(mixin.OnClick) ~= "function" then return end
+    timerHooked = true
+    local original = mixin.OnClick
+    local wrapped = WrapTimerClick(original)
+    mixin.OnClick = wrapped
+    local timerFrame = _G.QuestTimerFrame
+    local pools = timerFrame and timerFrame.pools
+    if pools and pools.EnumerateActive then
+        for button in pools:EnumerateActive() do
+            if button.OnClick == original then button.OnClick = wrapped end
+        end
+    end
+end
+
+------------------------------------------------------------------------
+-- The trackers and Blizzard's frames can load after this add-on, so try again as add-ons load.
 ------------------------------------------------------------------------
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
@@ -68,11 +156,20 @@ f:SetScript("OnEvent", function()
     if not ns.db then return end
     HookBlizzardTracker()
     HookQuestie()
+    HookMicroButton()
+    HookPopup()
+    HookQuestTimer()
 end)
 
--- For /fql debug-style checks.
+-- For /fql hooks.
 function ns.HookStatus()
     local n = 0
     for _ in pairs(hookedModules) do n = n + 1 end
-    return n, questieHooked
+    return {
+        { "Blizzard tracker", n > 0 },
+        { "Questie tracker", questieHooked },
+        { "Quest Log button", microHooked },
+        { "Quest details pop-up", popupHooked },
+        { "Quest timers", timerHooked },
+    }
 end

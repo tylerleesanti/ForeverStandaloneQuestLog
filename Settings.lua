@@ -266,7 +266,7 @@ function ns.CreateSettings(window)
     local c3 = MakeCheck("L opens this window", "replaceKey", c2, 0, function() ns.ApplyBindings(true) end)
     c3:SetPoint("TOPLEFT", c2, "BOTTOMLEFT", 0, 2)
 
-    local c4 = MakeCheck("Tracker clicks open this window", "trackerOpensLog", c3, 0)
+    local c4 = MakeCheck("Quest clicks open this window", "trackerOpensLog", c3, 0)
     c4:SetPoint("TOPLEFT", c3, "BOTTOMLEFT", 0, 2)
 
     MakeColorSwatch("Area title colour", c4, -12)
