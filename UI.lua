@@ -383,7 +383,7 @@ local function ItemButton(i)
     b.name:SetSize(90, 36)
     b.name:SetPoint("LEFT", nameFrame, "LEFT", 15, 0)
     b.name:SetJustifyH("LEFT")
-    b.name:SetShadowOffset(0, 0)
+    b.name:SetShadowOffset(1, -1) -- light text on the dark tab reads better with the shadow
 
     local glow = b:CreateTexture(nil, "HIGHLIGHT")
     glow:SetAllPoints(b.icon)
@@ -419,7 +419,17 @@ local function SetItemButton(b, item)
     end
     b.count:SetText(item.count and item.count > 1 and item.count or "")
     b.name:SetText(item.name or RETRIEVING_ITEM_INFO or "Loading...")
-    b.name:SetTextColor(TEXT_R, TEXT_G, TEXT_B)
+    -- The name sits on the dark name-frame tab, so it's drawn in the item's rarity colour (grey,
+    -- white, green, blue, purple...) rather than the parchment's dark ink.
+    local r, g, bl = 1, 1, 1
+    if item.quality then
+        if C_Item and C_Item.GetItemQualityColor then
+            r, g, bl = C_Item.GetItemQualityColor(item.quality)
+        elseif GetItemQualityColor then
+            r, g, bl = GetItemQualityColor(item.quality)
+        end
+    end
+    b.name:SetTextColor(r or 1, g or 1, bl or 1)
     b.lastShift = nil
     b:Show()
 end
