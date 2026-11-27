@@ -523,15 +523,61 @@ local function QuestMapID(questID)
     if id and id ~= 0 then return id end
 end
 
--- With Questie: its tracker's "show on map" opens the map at the nearest turn-in for a completed
--- quest, or the nearest unfinished objective otherwise, and flashes the quest's icons there. It
--- opens the map through the same client call. Returns true if Questie handled it.
-local function QuestieShowOnMap(questID)
+local function QuestieModule(name)
     local modules = _G.QuestieLoader and QuestieLoader._modules
-    local utils = modules and modules.TrackerUtils
-    if not (utils and type(utils.ShowQuestOnMap) == "function") then return false end
-    local ok, shown = pcall(utils.ShowQuestOnMap, questID)
-    return ok and shown == true
+    return modules and modules[name]
+end
+
+local function MapName(mapID)
+    local info = mapID and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+    return info and info.name or "?"
+end
+
+-- Where the map should open for a quest, from Questie's quest database: the zone of the nearest
+-- turn-in once the quest is complete, otherwise of the nearest unfinished objective. Read straight
+-- from the database rather than through Questie's tracker, whose "show on map" only works for quests
+-- its tracker has matched up. `say` (optional) gets a line per step, for /fql map.
+-- Returns the uiMapID, and Questie's quest object (for flashing its icons).
+local function QuestieQuestMap(questID, say)
+    say = say or function() end
+    local DB, DU, Z = QuestieModule("QuestieDB"), QuestieModule("DistanceUtils"), QuestieModule("ZoneDB")
+    if not (DB and DU and Z) then
+        say("Questie: not loaded")
+        return nil
+    end
+    local ok, quest = pcall(DB.GetQuest, questID)
+    if not ok or not quest then
+        say("Questie: doesn't know quest " .. questID .. (ok and "" or (" (error: " .. tostring(quest) .. ")")))
+        return nil
+    end
+    local complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID)
+    local okSpawn, spawn, zone
+    if complete and quest.Finisher then
+        okSpawn, spawn, zone = pcall(DU.GetNearestFinisherOrStarter, quest.Finisher)
+        say(("Questie: complete, nearest turn-in: area %s"):format(tostring(okSpawn and zone or spawn)))
+    else
+        okSpawn, spawn, zone = pcall(DU.GetNearestSpawnForQuest, quest)
+        say(("Questie: %s, nearest objective: area %s"):format(complete and "complete (no turn-in data)" or "not complete",
+            tostring(okSpawn and zone or spawn)))
+    end
+    if not okSpawn or not zone then return nil end
+    local mapID = Z:GetUiMapIdByAreaId(zone)
+    say(("Questie: area %s is map %s (%s)"):format(tostring(zone), tostring(mapID), MapName(mapID)))
+    return mapID, quest
+end
+
+-- The map to open for a quest: Questie's answer, else the game's own quest map data, else the
+-- player's zone.
+local function ResolveQuestMap(questID, say)
+    say = say or function() end
+    local mapID, quest = QuestieQuestMap(questID, say)
+    if mapID then return mapID, quest end
+    mapID = QuestMapID(questID)
+    say(("Game: quest map %s (%s)"):format(tostring(mapID), MapName(mapID)))
+    if mapID then return mapID end
+    mapID = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    say(("Fallback: your zone, map %s (%s)"):format(tostring(mapID), MapName(mapID)))
+    return mapID
 end
 
 local function OpenMapToQuest(q)
@@ -540,19 +586,33 @@ local function OpenMapToQuest(q)
         return
     end
     C_QuestLog.SetSelectedQuest(q.questID)
-    if QuestieShowOnMap(q.questID) then
-        frame:Hide()
-        return
-    end
-    -- Without Questie (or a quest it doesn't know): the game's own idea of where the quest is.
-    -- the quest's zone, or the player's own if the game doesn't know where the quest is
-    local mapID = QuestMapID(q.questID) or (C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player"))
+    local mapID, questieQuest = ResolveQuestMap(q.questID)
     if C_Map.OpenWorldMap and mapID then
         C_Map.OpenWorldMap(mapID)
     else
         ToggleWorldMap()
     end
     frame:Hide() -- like the classic button, the map takes over from the log
+    -- With Questie, flash the quest's icons on the map so the turn-in or objective stands out.
+    local utils = QuestieModule("TrackerUtils")
+    if questieQuest and utils and type(utils.FlashFinisher) == "function" then
+        pcall(utils.FlashFinisher, utils, questieQuest)
+    end
+end
+
+-- /fql map: prints how Show Map picks the map for the selected quest.
+function ns.DebugQuestMap()
+    local q
+    for _, r in ipairs(rows) do
+        if not r.isHeader and r.questID == selectedQuestID then q = r end
+    end
+    if not q then
+        ns.Print("Select a quest in the window first.")
+        return
+    end
+    ns.Print(("Show Map for \"%s\" (quest %d):"):format(q.title, q.questID))
+    local mapID = ResolveQuestMap(q.questID, function(line) ns.Print("  " .. line) end)
+    ns.Print(("  Opens map %s (%s)"):format(tostring(mapID), MapName(mapID)))
 end
 
 -- The classic "Show Map" button: the label, then the little map picture (UI-QuestMap_Button's top

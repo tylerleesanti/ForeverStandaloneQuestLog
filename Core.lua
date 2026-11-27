@@ -133,6 +133,8 @@ SlashCmdList.FOREVERQUESTLOG = function(msg)
         ns.Print(("Tracker hooks: Blizzard tracker %s, Questie tracker %s."):format(
             blizz > 0 and "|cff20ff20hooked|r" or "|cffff2020not found|r",
             questie and "|cff20ff20hooked|r" or "|cffff2020not found|r"))
+    elseif msg == "map" then
+        ns.DebugQuestMap()
     elseif msg == "reset" then
         ns.db.point = nil
         ns.ResetPosition()
