@@ -426,7 +426,7 @@ local function DetailLine(i, font)
         detailLines[i] = fs
     end
     fs:SetFontObject(font)
-    fs:SetShadowOffset(0, 0) -- most parchment text has no shadow; quest steps get one in UpdateDetails
+    fs:SetShadowOffset(0, 0) -- dark text on parchment reads better without the drop shadow
     fs:Show()
     return fs
 end
@@ -645,13 +645,10 @@ local function UpdateDetails(q)
             else
                 add(bodyFont, "- " .. o.text, TEXT_R, TEXT_G, TEXT_B, 3)
             end
-            lines[#lines].step = true
         end
-        -- A finished quest says where to hand it in, in dark green.
-        if d.turnIn then
-            add(bodyFont, d.turnIn, 0.05, 0.4, 0.05, 8)
-            lines[#lines].step = true
-        end
+        -- A finished quest says where to hand it in (in the normal text colour: green on the
+        -- parchment was hard to read).
+        if d.turnIn then add(bodyFont, d.turnIn, TEXT_R, TEXT_G, TEXT_B, 8) end
 
         if q.party and #q.party > 0 then
             add(bodyFont, "Party members on this quest: " .. table.concat(q.party, ", "), TEXT_R, TEXT_G, TEXT_B, 6)
@@ -677,24 +674,20 @@ local function UpdateDetails(q)
             if d.xp then
                 local xp = BreakUpLargeNumbers and BreakUpLargeNumbers(d.xp) or d.xp
                 add(bodyFont, ("Experience: %s"):format(xp), TEXT_R, TEXT_G, TEXT_B, 6)
-                lines[#lines].step = true
             end
             if d.money then
                 add(bodyFont, "Money: " .. MoneyText(d.money), TEXT_R, TEXT_G, TEXT_B, 4)
-                lines[#lines].step = true -- same shadow as the quest steps, so the reward stands out
             end
             -- Reputation (with Questie): one line per faction, "+250 Stormwind", losses too.
             if d.reputation then
                 add(bodyFont, (REPUTATION or "Reputation") .. ":", TEXT_R, TEXT_G, TEXT_B, 6)
-                lines[#lines].step = true
                 for _, rep in ipairs(d.reputation) do
                     local text = ("%s%d %s"):format(rep.amount > 0 and "+" or "", rep.amount, rep.name)
                     if rep.amount > 0 then
-                        add(bodyFont, "  " .. text, 0.05, 0.3, 0.05, 2)
+                        add(bodyFont, "  " .. text, TEXT_R, TEXT_G, TEXT_B, 2)
                     else
                         add(bodyFont, "  " .. text, 0.55, 0.05, 0.05, 2)
                     end
-                    lines[#lines].step = true
                 end
             end
         end
@@ -726,12 +719,6 @@ local function UpdateDetails(q)
             fs:SetWidth(l.width or textW)
             fs:SetText(l.text)
             fs:SetTextColor(l.r, l.g, l.b)
-            if l.step and ns.db.textShadow then
-                -- The quest steps (objectives and the turn-in line) get a dark drop shadow so they
-                -- stand out from the rest of the page.
-                fs:SetShadowColor(0, 0, 0, 0.3)
-                fs:SetShadowOffset(1, -1)
-            end
             fs:ClearAllPoints()
             fs:SetPoint("TOPLEFT", 4, -y)
             local height = fs:GetStringHeight()

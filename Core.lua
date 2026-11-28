@@ -8,7 +8,6 @@ ns.defaults = {
     listTooltips = true,  -- hovering a quest in the list shows its objectives
     showLevels = true,    -- "[12] Quest name"
     colorByLevel = true,  -- difficulty colours (grey / green / yellow / orange / red)
-    textShadow = true,    -- "Improved text visibility": a soft shadow under the quest steps and rewards
     headerColor = { 1, 1, 1 }, -- category titles: white, so they never look like a (yellow) quest
     collapsed = {},       -- [header title] = true, our own collapse state (the game's is left alone)
     selectedQuest = {},   -- ["Name-Realm"] = questID, the quest each character last had selected
