@@ -426,14 +426,7 @@ local function DetailLine(i, font)
         detailLines[i] = fs
     end
     fs:SetFontObject(font)
-    -- A black drop shadow muddies dark text on parchment, so the "Text shadow" option uses a pale,
-    -- parchment-coloured one instead: a light edge that lifts the letters off the page.
-    if ns.db.textShadow then
-        fs:SetShadowColor(1, 0.97, 0.86, 0.75)
-        fs:SetShadowOffset(1, -1)
-    else
-        fs:SetShadowOffset(0, 0)
-    end
+    fs:SetShadowOffset(0, 0) -- most parchment text has no shadow; quest steps get one in UpdateDetails
     fs:Show()
     return fs
 end
@@ -654,9 +647,13 @@ local function UpdateDetails(q)
             else
                 add(bodyFont, "- " .. o.text, TEXT_R, TEXT_G, TEXT_B, 3)
             end
+            lines[#lines].step = true
         end
         -- A finished quest says where to hand it in, in dark green.
-        if d.turnIn then add(bodyFont, d.turnIn, 0.05, 0.4, 0.05, 8) end
+        if d.turnIn then
+            add(bodyFont, d.turnIn, 0.05, 0.4, 0.05, 8)
+            lines[#lines].step = true
+        end
 
         if q.party and #q.party > 0 then
             add(bodyFont, "Party members on this quest: " .. table.concat(q.party, ", "), TEXT_R, TEXT_G, TEXT_B, 6)
@@ -727,6 +724,12 @@ local function UpdateDetails(q)
             fs:SetWidth(l.width or textW)
             fs:SetText(l.text)
             fs:SetTextColor(l.r, l.g, l.b)
+            if l.step and ns.db.textShadow then
+                -- The quest steps (objectives and the turn-in line) get a dark drop shadow so they
+                -- stand out from the rest of the page.
+                fs:SetShadowColor(0, 0, 0, 0.6)
+                fs:SetShadowOffset(1, -1)
+            end
             fs:ClearAllPoints()
             fs:SetPoint("TOPLEFT", 4, -y)
             local height = fs:GetStringHeight()

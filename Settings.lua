@@ -292,7 +292,7 @@ function ns.CreateSettings(window)
     c4:SetPoint("TOPLEFT", c3, "BOTTOMLEFT", 0, 2)
     local c5 = MakeCheck("Quest tooltips in the list", "listTooltips", c4, 0)
     c5:SetPoint("TOPLEFT", c4, "BOTTOMLEFT", 0, 2)
-    local c6 = MakeCheck("Text shadow", "textShadow", c5, 0)
+    local c6 = MakeCheck("Shadow on quest steps", "textShadow", c5, 0)
     c6:SetPoint("TOPLEFT", c5, "BOTTOMLEFT", 0, 2)
 
     MakeColorSwatch("Category title colour", c6, -12)
