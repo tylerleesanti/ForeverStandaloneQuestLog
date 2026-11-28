@@ -591,7 +591,7 @@ local function UpdateDetails(q)
         end
 
         local hasChoices, hasRewards = #d.choices > 0, #d.rewards > 0
-        if d.xp or d.money or hasChoices or hasRewards then
+        if d.xp or d.money or d.reputation or hasChoices or hasRewards then
             add(titleFont, REWARDS or "Rewards", TITLE_R, TITLE_G, TITLE_B, 14)
             if hasChoices then
                 add(bodyFont, REWARD_CHOICES or "You will be able to choose one of these rewards:", TEXT_R, TEXT_G, TEXT_B, 6)
@@ -608,6 +608,18 @@ local function UpdateDetails(q)
             end
             if d.money then
                 add(bodyFont, "Money: " .. MoneyText(d.money), TEXT_R, TEXT_G, TEXT_B, 4)
+            end
+            -- Reputation (with Questie): one line per faction, "+250 Stormwind", losses too.
+            if d.reputation then
+                add(bodyFont, (REPUTATION or "Reputation") .. ":", TEXT_R, TEXT_G, TEXT_B, 6)
+                for _, rep in ipairs(d.reputation) do
+                    local text = ("%s%d %s"):format(rep.amount > 0 and "+" or "", rep.amount, rep.name)
+                    if rep.amount > 0 then
+                        add(bodyFont, "  " .. text, 0.05, 0.3, 0.05, 2)
+                    else
+                        add(bodyFont, "  " .. text, 0.55, 0.05, 0.05, 2)
+                    end
+                end
             end
         end
     end

@@ -244,6 +244,25 @@ function ns.QuestieInfo(questID)
     return info
 end
 
+-- Reputation rewards, from Questie (the game only reports them for the modern "major" factions).
+-- QuestieReputation already applies the bonuses that apply to you (racial, Diplomat and so on).
+-- Returns a list of { name, amount }, or nil.
+function ns.ReputationRewards(questID)
+    local R = QuestieModule("QuestieReputation")
+    if not R or type(R.GetReputationReward) ~= "function" then return nil end
+    local ok, rewards = pcall(R.GetReputationReward, questID)
+    if not ok or type(rewards) ~= "table" then return nil end
+    local list = {}
+    for _, pair in ipairs(rewards) do
+        local factionID, amount = pair[1], pair[2]
+        local okName, name = pcall(R.GetFactionName, factionID)
+        if okName and type(name) == "string" and type(amount) == "number" and amount ~= 0 then
+            list[#list + 1] = { name = name, amount = math.floor(amount + 0.5) }
+        end
+    end
+    return #list > 0 and list or nil
+end
+
 -- Where to hand in a finished quest: the game's own completion text ("Return to Elder Bloodhoof in
 -- Thunder Bluff.") when it has one, else the nearest turn-in from Questie's database.
 -- Returns the text, and true when it came from Questie.
@@ -297,5 +316,6 @@ function ns.GetDetails(q)
     d.rewards = RewardItems("reward", q.questID)
     d.questie = ns.QuestieInfo(q.questID)
     d.turnIn, d.turnInFromQuestie = ns.TurnInHint(q)
+    d.reputation = ns.ReputationRewards(q.questID)
     return d
 end
