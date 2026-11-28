@@ -408,8 +408,8 @@ local function DetailLine(i, font)
     return fs
 end
 
--- Reward item buttons, as the classic log drew them: the icon with its count, and the name on the
--- name-frame tab beside it, two to a row. Hover for the tooltip (Shift compares), Shift-click to
+-- Reward item buttons, as the classic log drew them: the icon with its count, and the name in the
+-- dark box beside it, two to a row. Hover for the tooltip (Shift compares), Shift-click to
 -- link it, Ctrl-click to try it on.
 local itemButtons = {}
 local ITEM_COL, ITEM_ROW = 147, 44
@@ -436,20 +436,29 @@ local function ItemButton(i)
     b.count:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", -2, 2)
     b.count:SetJustifyH("RIGHT")
 
-    local nameFrame = b:CreateTexture(nil, "BACKGROUND")
-    b.nameFrame = nameFrame
-    nameFrame:SetSize(128, 64)
-    nameFrame:SetPoint("LEFT", b.icon, "RIGHT", -10, 0)
-    nameFrame:SetTexture(DQ .. "UI-QuestItemNameFrame")
-    -- A second copy of the tab, drawn additively, lifts the rarity colour into it (tinting alone
-    -- only darkens the tab, which hardly shows).
-    b.nameGlow = b:CreateTexture(nil, "BORDER")
-    b.nameGlow:SetAllPoints(nameFrame)
-    b.nameGlow:SetTexture(DQ .. "UI-QuestItemNameFrame")
-    b.nameGlow:SetBlendMode("ADD")
-    b.name = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    b.name:SetSize(90, 36)
-    b.name:SetPoint("LEFT", nameFrame, "LEFT", 15, 0)
+    -- The dark box behind the name, with a border in the item's rarity colour. Drawn from plain
+    -- colour textures rather than the classic UI-QuestItemNameFrame art: that art is nearly black,
+    -- so tinting it can't show a colour, and its border isn't a separate piece that could be tinted.
+    local box = CreateFrame("Frame", nil, b)
+    box:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 1, -2)
+    box:SetSize(102, 33)
+    local fill = box:CreateTexture(nil, "BACKGROUND")
+    fill:SetAllPoints()
+    fill:SetColorTexture(0, 0, 0, 0.6)
+    local EDGE = 2
+    b.edges = {}
+    for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, EDGE }, { "BOTTOMLEFT", "BOTTOMRIGHT", 0, EDGE },
+        { "TOPLEFT", "BOTTOMLEFT", EDGE, 0 }, { "TOPRIGHT", "BOTTOMRIGHT", EDGE, 0 } }) do
+        local e = box:CreateTexture(nil, "BORDER")
+        e:SetColorTexture(1, 1, 1)
+        e:SetPoint(side[1])
+        e:SetPoint(side[2])
+        if side[3] > 0 then e:SetWidth(side[3]) else e:SetHeight(side[4]) end
+        b.edges[#b.edges + 1] = e
+    end
+    b.name = box:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    b.name:SetPoint("TOPLEFT", 6, -2)
+    b.name:SetPoint("BOTTOMRIGHT", -4, 2)
     b.name:SetJustifyH("LEFT")
     b.name:SetShadowOffset(1, -1) -- light text on the dark tab reads better with the shadow
 
@@ -487,7 +496,7 @@ local function SetItemButton(b, item)
     end
     b.count:SetText(item.count and item.count > 1 and item.count or "")
     b.name:SetText(item.name or RETRIEVING_ITEM_INFO or "Loading...")
-    -- The name sits on the dark name-frame tab, so it's drawn in the item's rarity colour (grey,
+    -- The name sits in the dark box, so it's drawn in the item's rarity colour (grey,
     -- white, green, blue, purple...) rather than the parchment's dark ink.
     local r, g, bl = 1, 1, 1
     if item.quality then
@@ -499,18 +508,9 @@ local function SetItemButton(b, item)
     end
     r, g, bl = r or 1, g or 1, bl or 1
     b.name:SetTextColor(r, g, bl)
-    -- The tab behind the name takes on the same colour: tinted fully with the rarity colour,
-    -- plus an additive glow of it. Common (white) and unknown items keep the plain tab.
-    local TINT, GLOW = 1, 0.6
+    -- The box's border takes the same colour; common (white) items get a softer, half-strength one.
     local plain = r > 0.95 and g > 0.95 and bl > 0.95
-    if plain then
-        b.nameFrame:SetVertexColor(1, 1, 1)
-        b.nameGlow:Hide()
-    else
-        b.nameFrame:SetVertexColor(1 - TINT + TINT * r, 1 - TINT + TINT * g, 1 - TINT + TINT * bl)
-        b.nameGlow:SetVertexColor(r, g, bl, GLOW)
-        b.nameGlow:Show()
-    end
+    for _, e in ipairs(b.edges) do e:SetVertexColor(r, g, bl, plain and 0.5 or 1) end
     b.lastShift = nil
     b:Show()
 end
