@@ -24,7 +24,7 @@ local artPieces = {}
 -- Parchment text colours (the game's "Parchment" material).
 local TITLE_R, TITLE_G, TITLE_B = 0, 0, 0
 local TEXT_R, TEXT_G, TEXT_B = 0.18, 0.12, 0.06
-local DONE_R, DONE_G, DONE_B = 0.35, 0.35, 0.35
+local DONE_R, DONE_G, DONE_B = 0.3, 0.3, 0.3
 
 local DQ = "Interface\\QuestFrame\\"
 local BTN = "Interface\\Buttons\\"
@@ -423,11 +423,17 @@ local function DetailLine(i, font)
         fs = detailChild:CreateFontString(nil, "ARTWORK")
         fs:SetWidth(textW)
         fs:SetJustifyH("LEFT")
-        fs:SetShadowOffset(0, 0) -- dark text on parchment reads better without the drop shadow
         detailLines[i] = fs
     end
     fs:SetFontObject(font)
-    fs:SetShadowOffset(0, 0)
+    -- A black drop shadow muddies dark text on parchment, so the "Text shadow" option uses a pale,
+    -- parchment-coloured one instead: a light edge that lifts the letters off the page.
+    if ns.db.textShadow then
+        fs:SetShadowColor(1, 0.97, 0.86, 0.75)
+        fs:SetShadowOffset(1, -1)
+    else
+        fs:SetShadowOffset(0, 0)
+    end
     fs:Show()
     return fs
 end

@@ -243,7 +243,7 @@ end
 function ns.CreateSettings(window)
     settingsWindow = window
     panel = CreateFrame("Frame", "ForeverQuestLogSettingsFrame", window, "BackdropTemplate")
-    panel:SetSize(270, 530)
+    panel:SetSize(270, 554)
     AttachPanel()
     panel:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -292,8 +292,10 @@ function ns.CreateSettings(window)
     c4:SetPoint("TOPLEFT", c3, "BOTTOMLEFT", 0, 2)
     local c5 = MakeCheck("Quest tooltips in the list", "listTooltips", c4, 0)
     c5:SetPoint("TOPLEFT", c4, "BOTTOMLEFT", 0, 2)
+    local c6 = MakeCheck("Text shadow", "textShadow", c5, 0)
+    c6:SetPoint("TOPLEFT", c5, "BOTTOMLEFT", 0, 2)
 
-    MakeColorSwatch("Category title colour", c5, -12)
+    MakeColorSwatch("Category title colour", c6, -12)
 
     local reset = CreateFrame("Button", nil, panel)
     reset:SetSize(140, 21)
