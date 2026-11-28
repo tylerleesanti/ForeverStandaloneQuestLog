@@ -499,9 +499,9 @@ local function SetItemButton(b, item)
     end
     r, g, bl = r or 1, g or 1, bl or 1
     b.name:SetTextColor(r, g, bl)
-    -- The tab behind the name takes on the same colour: tinted most of the way to the rarity colour,
+    -- The tab behind the name takes on the same colour: tinted fully with the rarity colour,
     -- plus an additive glow of it. Common (white) and unknown items keep the plain tab.
-    local TINT, GLOW = 0.8, 0.35
+    local TINT, GLOW = 1, 0.6
     local plain = r > 0.95 and g > 0.95 and bl > 0.95
     if plain then
         b.nameFrame:SetVertexColor(1, 1, 1)
