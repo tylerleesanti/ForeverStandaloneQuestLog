@@ -574,6 +574,9 @@ local function ShowQuestInfo(self)
         { "Required level", qi.requiredLevel }, { "Follows", qi.previous }, { "Leads to", qi.nextQuest } }) do
         if row[2] then GameTooltip:AddLine("|cffffd100" .. row[1] .. ":|r " .. row[2], 1, 1, 1, true) end
     end
+    if self.questID then
+        GameTooltip:AddLine("|cffffd100Quest ID:|r " .. self.questID, 1, 1, 1, true)
+    end
     GameTooltip:Show()
 end
 
@@ -612,10 +615,6 @@ local function LastLineWidth(fs, text, width)
     return line and w(line) or full
 end
 
-local function HasQuestInfo(qi)
-    return qi and (qi.giver or qi.finisher or qi.requiredLevel or qi.previous or qi.nextQuest) and true
-end
-
 local function UpdateDetails(q)
     local lines = {}
     local titleFont = ns.fonts.title
@@ -627,9 +626,11 @@ local function UpdateDetails(q)
     if q then
         local d = ns.GetDetails(q)
         add(titleFont, d.title, TITLE_R, TITLE_G, TITLE_B, 5)
-        if HasQuestInfo(d.questie) then
-            -- Leave room for the info icon at the end of the name.
-            lines[#lines].info, lines[#lines].width = d.questie, textW - INFO_SIZE - 4
+        if q.questID and q.questID > 0 then
+            -- The info icon at the end of the name: Questie's details (when it's loaded) and the
+            -- quest ID. Leave room for it.
+            local l = lines[#lines]
+            l.info, l.questID, l.width = d.questie or {}, q.questID, textW - INFO_SIZE - 4
         end
         local freq = FrequencyName(q)
         if freq then add(bodyFont, freq .. " quest", 0.1, 0.25, 0.55, 2) end
@@ -676,6 +677,7 @@ local function UpdateDetails(q)
             if d.xp then
                 local xp = BreakUpLargeNumbers and BreakUpLargeNumbers(d.xp) or d.xp
                 add(bodyFont, ("Experience: %s"):format(xp), TEXT_R, TEXT_G, TEXT_B, 6)
+                lines[#lines].step = true
             end
             if d.money then
                 add(bodyFont, "Money: " .. MoneyText(d.money), TEXT_R, TEXT_G, TEXT_B, 4)
@@ -738,7 +740,7 @@ local function UpdateDetails(q)
                 local numLines = math.max(1, fs:GetNumLines())
                 local lineH = height / numLines
                 local b = InfoButton()
-                b.info, b.title = l.info, l.text
+                b.info, b.questID, b.title = l.info, l.questID, l.text
                 b:ClearAllPoints()
                 b:SetPoint("LEFT", detailChild, "TOPLEFT", 4 + LastLineWidth(fs, l.text, l.width) + 4,
                     -(y + (numLines - 0.5) * lineH))

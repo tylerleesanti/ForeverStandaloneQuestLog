@@ -292,7 +292,7 @@ function ns.CreateSettings(window)
     c4:SetPoint("TOPLEFT", c3, "BOTTOMLEFT", 0, 2)
     local c5 = MakeCheck("Quest tooltips in the list", "listTooltips", c4, 0)
     c5:SetPoint("TOPLEFT", c4, "BOTTOMLEFT", 0, 2)
-    local c6 = MakeCheck("Shadow on quest steps", "textShadow", c5, 0)
+    local c6 = MakeCheck("Improved text visibility", "textShadow", c5, 0)
     c6:SetPoint("TOPLEFT", c5, "BOTTOMLEFT", 0, 2)
 
     MakeColorSwatch("Category title colour", c6, -12)
@@ -305,8 +305,14 @@ function ns.CreateSettings(window)
         local d = DEFAULT_HEADER_COLOR
         ns.db.headerColor = { d[1], d[2], d[3] }
         ns.db.width, ns.db.height = nil, nil
+        -- The checkboxes go back to their defaults too.
+        for _, w in ipairs(widgets) do
+            if w.key and type(ns.defaults[w.key]) == "boolean" then ns.db[w.key] = ns.defaults[w.key] end
+        end
+        ns.ApplyBindings() -- "L opens this window" may have changed
         Sync()
         ns.ApplyFonts()
         ns.ApplySize()
+        ns.MarkDirty()
     end)
 end
