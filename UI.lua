@@ -718,13 +718,19 @@ local function UpdateDetails(q)
             end
             -- Reputation (with Questie): one line per faction, "+250 Stormwind", losses too.
             if d.reputation then
-                add(bodyFont, (REPUTATION or "Reputation") .. ":", TEXT_R, TEXT_G, TEXT_B, 6)
-                for _, rep in ipairs(d.reputation) do
+                -- "Reputation: +250 Stormwind" on one line, any further factions lined up beneath
+                -- the first. Losses are in the warning colour.
+                local label = (REPUTATION or "Reputation") .. ": "
+                for i, rep in ipairs(d.reputation) do
                     local text = ("%s%d %s"):format(rep.amount > 0 and "+" or "", rep.amount, rep.name)
-                    if rep.amount > 0 then
-                        add(bodyFont, "  " .. text, TEXT_R, TEXT_G, TEXT_B, 2)
+                    if rep.amount <= 0 then
+                        text = ("|cff%02x%02x%02x%s|r"):format(WARN_R * 255, WARN_G * 255, WARN_B * 255, text)
+                    end
+                    if i == 1 then
+                        add(bodyFont, label .. text, TEXT_R, TEXT_G, TEXT_B, 6)
                     else
-                        add(bodyFont, "  " .. text, WARN_R, WARN_G, WARN_B, 2)
+                        add(bodyFont, text, TEXT_R, TEXT_G, TEXT_B, 2)
+                        lines[#lines].indent = label -- starts where the first faction does
                     end
                 end
             end
@@ -754,11 +760,17 @@ local function UpdateDetails(q)
         else
             numText = numText + 1
             local fs = DetailLine(numText, l.font)
-            fs:SetWidth(l.width or textW)
+            local x = 0
+            if l.indent then
+                -- Indented by the width of l.indent in this font (measured with this font string).
+                fs:SetText(l.indent)
+                x = fs:GetUnboundedStringWidth()
+            end
+            fs:SetWidth((l.width or textW) - x)
             fs:SetText(l.text)
             fs:SetTextColor(l.r, l.g, l.b)
             fs:ClearAllPoints()
-            fs:SetPoint("TOPLEFT", 4, -y)
+            fs:SetPoint("TOPLEFT", 4 + x, -y)
             local height = fs:GetStringHeight()
             if l.info then
                 -- The info icon, just after the last word of the name, centred on its line.
