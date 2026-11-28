@@ -21,16 +21,47 @@ local ART_ROWS = { 0, 80, 400, 445 }             -- art y breaks (from the top)
 local ROW_STRETCH = { false, true, false }
 local artPieces = {}
 
--- Parchment text colours (the game's "Parchment" material).
+-- Details page text colours. They start as the Classic theme's parchment ink (the game's
+-- "Parchment" material); ns.ApplyTheme swaps them for the theme in use.
 local TITLE_R, TITLE_G, TITLE_B = 0, 0, 0
 local TEXT_R, TEXT_G, TEXT_B = 0.18, 0.12, 0.06
 local DONE_R, DONE_G, DONE_B = 0.3, 0.3, 0.3
+local FREQ_R, FREQ_G, FREQ_B = 0.1, 0.25, 0.55  -- "Daily quest"
+local WARN_R, WARN_G, WARN_B = 0.6, 0.05, 0.05  -- time left, reputation losses
+local detailShadow = false                     -- light text on the dark theme gets a drop shadow
+
+-- Themes: Classic is the Wrath quest log art; Dark is flat and dark, after Details! and similar.
+local THEMES = {
+    classic = {
+        title = { 0, 0, 0 }, text = { 0.18, 0.12, 0.06 }, done = { 0.3, 0.3, 0.3 },
+        freq = { 0.1, 0.25, 0.55 }, warn = { 0.6, 0.05, 0.05 }, shadow = false,
+    },
+    dark = {
+        title = { 1, 0.82, 0 }, text = { 0.86, 0.86, 0.86 }, done = { 0.5, 0.5, 0.5 },
+        freq = { 0.45, 0.7, 1 }, warn = { 1, 0.42, 0.42 }, shadow = true,
+    },
+}
+-- The dark theme's flat colours.
+local DARK = {
+    bg = { 0.07, 0.07, 0.075, 0.96 },   -- window
+    bar = { 0.115, 0.115, 0.125, 1 },   -- title bar
+    panel = { 0.035, 0.035, 0.04, 0.9 },  -- list and details panels
+    edge = { 0.2, 0.2, 0.22, 1 },       -- 1-pixel borders
+    outer = { 0, 0, 0, 1 },             -- the window's outer border
+    button = { 0.14, 0.14, 0.15, 1 },
+    buttonEdge = { 0.3, 0.3, 0.32, 1 },
+}
+
+local function IsDark() return ns.db and ns.db.theme == "dark" end
 
 local DQ = "Interface\\QuestFrame\\"
 local BTN = "Interface\\Buttons\\"
 local MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 
 local frame, listScroll, listChild, detailScroll, detailChild
+local book, titleText, closeX, cogBtn -- title bar pieces the theme restyles
+local darkArt                         -- the dark theme's flat textures (see BuildDarkArt)
+local BuildDarkArt
 local countText, searchBox, emptyText
 local abandonBtn, trackBtn, shareBtn, mapBtn
 local rowPool = {}
@@ -426,7 +457,13 @@ local function DetailLine(i, font)
         detailLines[i] = fs
     end
     fs:SetFontObject(font)
-    fs:SetShadowOffset(0, 0) -- dark text on parchment reads better without the drop shadow
+    -- Dark text on parchment reads better without the drop shadow; light text on dark, with it.
+    if detailShadow then
+        fs:SetShadowColor(0, 0, 0, 1)
+        fs:SetShadowOffset(1, -1)
+    else
+        fs:SetShadowOffset(0, 0)
+    end
     fs:Show()
     return fs
 end
@@ -634,9 +671,9 @@ local function UpdateDetails(q)
             l.info, l.questID, l.width = d.questie or {}, q.questID, textW - INFO_SIZE - 4
         end
         local freq = FrequencyName(q)
-        if freq then add(bodyFont, freq .. " quest", 0.1, 0.25, 0.55, 2) end
+        if freq then add(bodyFont, freq .. " quest", FREQ_R, FREQ_G, FREQ_B, 2) end
         if q.timeEnd and not q.complete and not q.failed then
-            add(bodyFont, "Time left: " .. Clock(TimeLeft(q)), 0.6, 0.05, 0.05, 2)
+            add(bodyFont, "Time left: " .. Clock(TimeLeft(q)), WARN_R, WARN_G, WARN_B, 2)
             lines[#lines].timeEnd = q.timeEnd -- ticks down every second (see TickTimers)
         end
         if d.objectiveText then add(bodyFont, d.objectiveText, TEXT_R, TEXT_G, TEXT_B, 6) end
@@ -687,7 +724,7 @@ local function UpdateDetails(q)
                     if rep.amount > 0 then
                         add(bodyFont, "  " .. text, TEXT_R, TEXT_G, TEXT_B, 2)
                     else
-                        add(bodyFont, "  " .. text, 0.55, 0.05, 0.05, 2)
+                        add(bodyFont, "  " .. text, WARN_R, WARN_G, WARN_B, 2)
                     end
                 end
             end
@@ -868,6 +905,60 @@ end
 ------------------------------------------------------------------------
 -- Window
 ------------------------------------------------------------------------
+-- Flat pieces for the dark theme: 1-pixel borders and flat buttons.
+local function MakeEdges(parent, layer)
+    local e = {}
+    for i = 1, 4 do e[i] = parent:CreateTexture(nil, layer or "BORDER") end
+    return e
+end
+
+-- Puts the four edges around region (a frame or texture), one physical pixel thick.
+local function LayoutEdges(e, region, c)
+    local p = PixelUtil and PixelUtil.GetNearestPixelSize(1, region:GetEffectiveScale(), 1) or 1
+    for _, t in ipairs(e) do
+        t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+        t:ClearAllPoints()
+    end
+    e[1]:SetPoint("TOPLEFT", region); e[1]:SetPoint("TOPRIGHT", region); e[1]:SetHeight(p)
+    e[2]:SetPoint("BOTTOMLEFT", region); e[2]:SetPoint("BOTTOMRIGHT", region); e[2]:SetHeight(p)
+    e[3]:SetPoint("TOPLEFT", region); e[3]:SetPoint("BOTTOMLEFT", region); e[3]:SetWidth(p)
+    e[4]:SetPoint("TOPRIGHT", region); e[4]:SetPoint("BOTTOMRIGHT", region); e[4]:SetWidth(p)
+end
+
+local function ShowEdges(e, shown)
+    for _, t in ipairs(e) do t:SetShown(shown) end
+end
+
+-- Every panel button (here and in the settings), so a theme change can restyle them all.
+local themedButtons = {}
+
+-- Classic: the red-and-gold art. Dark: a flat dark box with a thin border and white text.
+local function ThemeButton(b, dark)
+    local f = b.flat
+    if not f then
+        f = { bg = b:CreateTexture(nil, "BACKGROUND"), edges = MakeEdges(b, "BORDER"),
+              hl = b:CreateTexture(nil, "HIGHLIGHT") }
+        f.bg:SetAllPoints()
+        f.hl:SetAllPoints()
+        f.hl:SetColorTexture(1, 1, 1, 0.08)
+        b.flat = f
+    end
+    for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
+        local t = b[getter](b)
+        if t then t:SetAlpha(dark and 0 or 1) end
+    end
+    if dark then
+        local c = DARK.button
+        f.bg:SetColorTexture(c[1], c[2], c[3], c[4])
+        LayoutEdges(f.edges, b, DARK.buttonEdge)
+    end
+    f.bg:SetShown(dark)
+    f.hl:SetShown(dark)
+    ShowEdges(f.edges, dark)
+    b:SetNormalFontObject(dark and GameFontHighlight or GameFontNormal)
+end
+ns.ThemeButton = ThemeButton
+
 -- Forever's UIPanelButtonTemplate and UIPanelCloseButton are the modern (red, atlas) versions,
 -- which don't fit the classic art, so these buttons use the classic textures directly.
 local function SetButtonArt(b, normal, pushed, disabled, highlight, l, r, t, bottom)
@@ -892,6 +983,7 @@ function ns.StyleClassicButton(b, label, onClick)
     b:SetPushedTextOffset(1, -1)
     b:SetText(label)
     b:SetScript("OnClick", onClick)
+    themedButtons[#themedButtons + 1] = b
 end
 
 local function MakeButton(parent, label, width, onClick)
@@ -1083,6 +1175,15 @@ local function MakeCloseButton(parent)
     b:SetSize(32, 32)
     SetButtonArt(b, BTN .. "UI-Panel-MinimizeButton-Up", BTN .. "UI-Panel-MinimizeButton-Down",
         BTN .. "UI-Panel-MinimizeButton-Disabled", BTN .. "UI-Panel-MinimizeButton-Highlight")
+    -- The dark theme's thin "x" (Media/close.tga, from tools/make_close_icon.py), grey, white on hover.
+    b.flatIcon = b:CreateTexture(nil, "ARTWORK")
+    b.flatIcon:SetSize(16, 16)
+    b.flatIcon:SetPoint("CENTER")
+    b.flatIcon:SetTexture(MEDIA .. "close")
+    b.flatIcon:SetVertexColor(0.7, 0.7, 0.7)
+    b.flatIcon:Hide()
+    b:SetScript("OnEnter", function(self) self.flatIcon:SetVertexColor(1, 1, 1) end)
+    b:SetScript("OnLeave", function(self) self.flatIcon:SetVertexColor(0.7, 0.7, 0.7) end)
     b:SetScript("OnClick", function() parent:Hide() end)
     return b
 end
@@ -1265,7 +1366,7 @@ local function LayoutArt(extraList, extraDetail, extraH)
                     tex:ClearAllPoints()
                     tex:SetPoint("TOPLEFT", frame, "TOPLEFT", destX + (s - xa) * scale, -destY)
                     tex:SetSize((e - s) * scale, h)
-                    tex:Show()
+                    tex:SetShown(not IsDark())
                 end
             end
             destX = destX + w
@@ -1345,6 +1446,158 @@ local function MakeLockButton(parent)
     return b
 end
 
+------------------------------------------------------------------------
+-- Themes
+--
+-- Classic draws the Wrath dual-pane quest log art. Dark hides it for a flat dark window: a title
+-- bar, two dark panels for the list and the details, thin borders, flat buttons and slim scroll
+-- bars, with light text on the details page.
+------------------------------------------------------------------------
+local function DarkTexture(layer, sublevel, color)
+    local t = frame:CreateTexture(nil, layer, nil, sublevel)
+    t:SetColorTexture(color[1], color[2], color[3], color[4])
+    darkArt.textures[#darkArt.textures + 1] = t
+    return t
+end
+
+-- Built once; shown or hidden by ns.ApplyTheme.
+function BuildDarkArt()
+    darkArt = { textures = {}, edgeSets = {} }
+    local function edges(region, color)
+        local e = MakeEdges(frame, "BORDER")
+        darkArt.edgeSets[#darkArt.edgeSets + 1] = { e, region, color }
+    end
+
+    local bg = DarkTexture("BACKGROUND", -8, DARK.bg)
+    bg:SetAllPoints()
+    edges(frame, DARK.outer)
+
+    local bar = DarkTexture("BACKGROUND", -7, DARK.bar)
+    bar:SetPoint("TOPLEFT")
+    bar:SetPoint("TOPRIGHT")
+    bar:SetHeight(28)
+    local barLine = DarkTexture("BORDER", 0, DARK.edge)
+    barLine:SetPoint("TOPLEFT", bar, "BOTTOMLEFT")
+    barLine:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT")
+    barLine:SetHeight(1)
+    darkArt.barLine = barLine
+
+    -- Panels behind the list and the details, each taking in its scroll bar.
+    local list = DarkTexture("BACKGROUND", -6, DARK.panel)
+    list:SetPoint("TOPLEFT", listScroll, "TOPLEFT", -6, 4)
+    list:SetPoint("BOTTOMRIGHT", listScroll, "BOTTOMRIGHT", 24, -4)
+    edges(list, DARK.edge)
+    local detail = DarkTexture("BACKGROUND", -6, DARK.panel)
+    detail:SetPoint("TOPLEFT", detailScroll, "TOPLEFT", -2, 4)
+    detail:SetPoint("BOTTOMRIGHT", detailScroll, "BOTTOMRIGHT", 26, -4)
+    edges(detail, DARK.edge)
+
+    -- A flat box for the search field, in place of its rounded art.
+    local search = DarkTexture("BACKGROUND", -5, { 0.03, 0.03, 0.035, 1 })
+    search:SetPoint("TOPLEFT", searchBox, "TOPLEFT", -5, 0)
+    search:SetPoint("BOTTOMRIGHT", searchBox, "BOTTOMRIGHT", 0, 0)
+    edges(search, DARK.edge)
+end
+
+-- Classic scroll bars have arrow buttons and the round knob; dark ones are a slim bar on a faint track.
+local function ThemeScrollBar(scroll, dark)
+    local bar = scroll.ScrollBar
+    if not bar then return end
+    local thumb = bar:GetThumbTexture()
+    if not bar.flatTrack then
+        bar.flatTrack = bar:CreateTexture(nil, "BACKGROUND")
+        bar.flatTrack:SetPoint("TOP")
+        bar.flatTrack:SetPoint("BOTTOM")
+        bar.flatTrack:SetWidth(6)
+        bar.flatTrack:SetColorTexture(1, 1, 1, 0.05)
+    end
+    if bar.ScrollUpButton then bar.ScrollUpButton:SetShown(not dark) end
+    if bar.ScrollDownButton then bar.ScrollDownButton:SetShown(not dark) end
+    bar.flatTrack:SetShown(dark)
+    local inset = dark and 2 or 16
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, -inset)
+    bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, inset)
+    if thumb then
+        if dark then
+            thumb:SetColorTexture(0.4, 0.4, 0.43, 1)
+            thumb:SetTexCoord(0, 1, 0, 1)
+            thumb:SetSize(6, 32)
+        else
+            thumb:SetTexture(BTN .. "UI-ScrollBar-Knob")
+            thumb:SetTexCoord(0.20, 0.80, 0.125, 0.875)
+            thumb:SetVertexColor(1, 1, 1)
+            thumb:SetSize(18, 24)
+        end
+    end
+end
+
+function ns.ApplyTheme()
+    if not frame then return end
+    local dark = IsDark()
+    local p = THEMES[dark and "dark" or "classic"]
+    TITLE_R, TITLE_G, TITLE_B = p.title[1], p.title[2], p.title[3]
+    TEXT_R, TEXT_G, TEXT_B = p.text[1], p.text[2], p.text[3]
+    DONE_R, DONE_G, DONE_B = p.done[1], p.done[2], p.done[3]
+    FREQ_R, FREQ_G, FREQ_B = p.freq[1], p.freq[2], p.freq[3]
+    WARN_R, WARN_G, WARN_B = p.warn[1], p.warn[2], p.warn[3]
+    detailShadow = p.shadow
+
+    -- Window art: the classic pieces are hidden by LayoutArt (run by ns.ApplySize below).
+    for _, t in ipairs(darkArt.textures) do t:SetShown(dark) end
+    for _, set in ipairs(darkArt.edgeSets) do
+        if dark then LayoutEdges(set[1], set[2], set[3]) end
+        ShowEdges(set[1], dark)
+    end
+    if dark then
+        local px = PixelUtil and PixelUtil.GetNearestPixelSize(1, frame:GetEffectiveScale(), 1) or 1
+        darkArt.barLine:SetHeight(px)
+    end
+    book:SetShown(not dark)
+
+    -- Title bar
+    titleText:ClearAllPoints()
+    closeX:ClearAllPoints()
+    cogBtn:ClearAllPoints()
+    if dark then
+        titleText:SetPoint("TOP", 0, -8)
+        titleText:SetFontObject(GameFontHighlight)
+        closeX:SetSize(22, 22)
+        closeX:SetPoint("TOPRIGHT", -3, -3)
+        cogBtn:SetPoint("RIGHT", closeX, "LEFT", -4, 0)
+    else
+        titleText:SetPoint("TOP", 0, -15)
+        titleText:SetFontObject(GameFontNormal)
+        closeX:SetSize(32, 32)
+        closeX:SetPoint("TOPRIGHT", 2, -8)
+        cogBtn:SetPoint("RIGHT", closeX, "LEFT", 2, 0) -- centred on the X's line (24px down)
+    end
+    for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
+        local t = closeX[getter](closeX)
+        if t then t:SetAlpha(dark and 0 or 1) end
+    end
+    closeX.flatIcon:SetShown(dark)
+    -- Grey cogwheel and padlock on the dark theme, so they don't stand out in gold.
+    for _, b in ipairs({ cogBtn, lockBtn }) do
+        for _, getter in ipairs({ "GetNormalTexture", "GetPushedTexture" }) do
+            local t = b and b[getter](b)
+            if t then t:SetDesaturated(dark) end
+        end
+    end
+
+    -- Search box: its rounded art on Classic, the flat box (in darkArt) on Dark.
+    for _, key in ipairs({ "Left", "Middle", "Right" }) do
+        if searchBox[key] then searchBox[key]:SetShown(not dark) end
+    end
+
+    ThemeScrollBar(listScroll, dark)
+    ThemeScrollBar(detailScroll, dark)
+    for _, b in ipairs(themedButtons) do ThemeButton(b, dark) end
+    if ns.ThemeSettings then ns.ThemeSettings(dark) end
+
+    ns.ApplySize() -- lays the art out again (hidden on Dark) and redraws the list and details
+end
+
 function ns.CreateWindow()
     frame = CreateFrame("Frame", "ForeverQuestLogFrame", UIParent)
     frame:SetSize(WIDTH, HEIGHT)
@@ -1373,29 +1626,25 @@ function ns.CreateWindow()
     ns.ApplyPosition()
 
     -- Art: the book portrait sits under the frame art, which has a round hole for it.
-    local book = frame:CreateTexture(nil, "BACKGROUND")
+    book = frame:CreateTexture(nil, "BACKGROUND")
     book:SetSize(64, 64)
     book:SetPoint("TOPLEFT", 3, -4)
     book:SetTexture(DQ .. "UI-QuestLog-BookIcon")
 
     -- Frame art: built (and rebuilt on resize) by LayoutArt.
 
-    local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    title:SetSize(300, 14)
-    title:SetPoint("TOP", 0, -15)
-    title:SetText(QUEST_LOG or "Quest Log")
+    -- Title, X, cogwheel and padlock: placed by ns.ApplyTheme, since each theme has its own title bar.
+    titleText = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    titleText:SetSize(300, 14)
+    titleText:SetText(QUEST_LOG or "Quest Log")
 
-    local close = MakeCloseButton(frame)
-    close:SetPoint("TOPRIGHT", 2, -8)
-
-    -- Cogwheel just left of the X, centred on the same line (the X's centre is 24px down).
-    local cog = MakeCogButton(frame)
-    cog:SetPoint("RIGHT", close, "LEFT", 2, 0)
+    closeX = MakeCloseButton(frame)
+    cogBtn = MakeCogButton(frame)
     ns.CreateSettings(frame)
 
     -- Padlock left of the cogwheel.
     local lock = MakeLockButton(frame)
-    lock:SetPoint("RIGHT", cog, "LEFT", 4, 0) -- overlaps its own transparent padding, so the gap matches the cog's
+    lock:SetPoint("RIGHT", cogBtn, "LEFT", 4, 0) -- overlaps its own transparent padding, so the gap matches the cog's
 
     -- Show Map, where the classic dual-pane log had it (QuestLogFrameShowMapButton: TOPRIGHT -25, -38).
     mapBtn = MakeMapButton(frame)
@@ -1475,6 +1724,7 @@ function ns.CreateWindow()
     closeBtn:SetPoint("BOTTOMRIGHT", -7, 14)
 
     itemBtn = MakeQuestItemButton()
+    BuildDarkArt()
 
     frame:SetScript("OnShow", function()
         ns.ApplyPosition()
@@ -1483,6 +1733,8 @@ function ns.CreateWindow()
             -- First open this session: back to the quest this character last had selected (read
             -- here rather than at load, when the character's name may not be known yet).
             selectedQuestID = selectedQuestID or ns.db.selectedQuest[ns.CharKey()]
+            -- The UI scale may have changed since load; the dark theme's 1-pixel borders follow it.
+            if IsDark() then ns.ApplyTheme() end
         end
         if dirty then ns.Refresh() else UpdateQuestItem(SelectedRow()) end
         if not timerTicker then timerTicker = C_Timer.NewTicker(1, TickTimers) end
@@ -1494,5 +1746,5 @@ function ns.CreateWindow()
         if not InCombatLockdown() then itemBtn:Hide() end -- in combat it's already gone
     end)
 
-    ns.ApplySize()
+    ns.ApplyTheme() -- also sizes the window (ns.ApplySize)
 end

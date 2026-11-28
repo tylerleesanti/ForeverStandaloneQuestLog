@@ -215,6 +215,13 @@ local function Sync()
         local c = ns.db.headerColor
         widgets.swatch.fill:SetColorTexture(c[1], c[2], c[3])
     end
+    -- The theme in use shows as a held-down (highlighted) button.
+    for theme, b in pairs(widgets.themes or {}) do
+        local selected = (ns.db.theme or "classic") == theme
+        if selected then b:LockHighlight() else b:UnlockHighlight() end
+        -- On the dark theme the flat highlight is faint, so the chosen one is lit a little more.
+        if b.flat then b.flat.hl:SetColorTexture(1, 1, 1, selected and 0.16 or 0.08) end
+    end
     syncing = false
 end
 
@@ -229,7 +236,38 @@ local settingsWindow
 
 local function AttachPanel()
     panel:ClearAllPoints()
-    panel:SetPoint("TOPLEFT", settingsWindow, "TOPRIGHT", -4, -12)
+    if ns.db.theme == "dark" then
+        panel:SetPoint("TOPLEFT", settingsWindow, "TOPRIGHT", 3, 0) -- a small gap beside the flat window
+    else
+        panel:SetPoint("TOPLEFT", settingsWindow, "TOPRIGHT", -4, -12) -- tucked under the classic frame's edge
+    end
+end
+
+local CLASSIC_BACKDROP = {
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 32,
+    insets = { left = 11, right = 12, top = 12, bottom = 11 },
+}
+local DARK_BACKDROP = {
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Buttons\\WHITE8X8",
+    edgeSize = 1,
+}
+
+-- Called by ns.ApplyTheme: the classic dialog frame, or a flat dark box like the dark window.
+function ns.ThemeSettings(dark)
+    if not panel then return end
+    panel:SetBackdrop(dark and DARK_BACKDROP or CLASSIC_BACKDROP)
+    if dark then
+        panel:SetBackdropColor(0.07, 0.07, 0.075, 0.97)
+        panel:SetBackdropBorderColor(0.2, 0.2, 0.22, 1)
+    else
+        panel:SetBackdropColor(1, 1, 1, 1)
+        panel:SetBackdropBorderColor(1, 1, 1, 1)
+    end
+    AttachPanel()
+    Sync()
 end
 
 local function FreezePanel()
@@ -243,14 +281,9 @@ end
 function ns.CreateSettings(window)
     settingsWindow = window
     panel = CreateFrame("Frame", "ForeverQuestLogSettingsFrame", window, "BackdropTemplate")
-    panel:SetSize(270, 530)
+    panel:SetSize(270, 562)
     AttachPanel()
-    panel:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 11, right = 12, top = 12, bottom = 11 },
-    })
+    panel:SetBackdrop(CLASSIC_BACKDROP)
     panel:EnableMouse(true)
     panel:SetClampedToScreen(true) -- a wide window could otherwise push it off the right edge
     panel:Hide()
@@ -293,7 +326,29 @@ function ns.CreateSettings(window)
     local c5 = MakeCheck("Quest tooltips in the list", "listTooltips", c4, 0)
     c5:SetPoint("TOPLEFT", c4, "BOTTOMLEFT", 0, 2)
 
-    MakeColorSwatch("Category title colour", c5, -12)
+    local swatchLabel = MakeColorSwatch("Category title colour", c5, -12)
+
+    -- Theme: Classic (the quest log art) or Dark (flat).
+    local themeLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    themeLabel:SetPoint("TOPLEFT", swatchLabel, "BOTTOMLEFT", 0, -18)
+    themeLabel:SetText("Theme")
+    widgets.themes = {}
+    local prev
+    for _, t in ipairs({ { "classic", "Classic" }, { "dark", "Dark" } }) do
+        local b = CreateFrame("Button", nil, panel)
+        b:SetSize(72, 21)
+        if prev then
+            b:SetPoint("LEFT", prev, "RIGHT", 6, 0)
+        else
+            b:SetPoint("LEFT", themeLabel, "RIGHT", 12, 0)
+        end
+        ns.StyleClassicButton(b, t[2], function()
+            ns.db.theme = t[1]
+            ns.ApplyTheme()
+        end)
+        widgets.themes[t[1]] = b
+        prev = b
+    end
 
     local reset = CreateFrame("Button", nil, panel)
     reset:SetSize(140, 21)
@@ -308,9 +363,10 @@ function ns.CreateSettings(window)
             if w.key and type(ns.defaults[w.key]) == "boolean" then ns.db[w.key] = ns.defaults[w.key] end
         end
         ns.ApplyBindings() -- "L opens this window" may have changed
+        ns.db.theme = ns.defaults.theme
         Sync()
         ns.ApplyFonts()
-        ns.ApplySize()
+        ns.ApplyTheme() -- also re-sizes the window
         ns.MarkDirty()
     end)
 end
