@@ -9,7 +9,7 @@ A classic-style quest log window for WoW Forever. Forever draws the modern quest
 - **Search** by quest name or zone, and **collapsible zones** that don't affect the game's own map log. The **All** button above the list expands or collapses every zone at once.
 - **Remembers your place.** The window reopens on the quest you last had selected, or the one you're super-tracking.
 - **Details page** with objectives and progress (finished ones greyed out), the description, and the rewards: XP, money and reward items. Hover an item for its tooltip (Shift compares it with what you're wearing), Shift-click to link it, Ctrl-click to try it on.
-- **Questie details.** With Questie installed, the details page shows the reputation rewards (with your bonuses applied), who gives the quest and who you turn it in to (and in which zone), its required level, and the quest before and after it in its chain.
+- **Questie details.** With Questie installed, the details page shows the reputation rewards (with your bonuses applied), and an info icon after the quest's name: hover it to see who gives the quest and who you turn it in to (and in which zone), its required level, and the quest before and after it in its chain.
 - **Hover tooltips.** Hover a quest in the list to see its objectives and progress without selecting it.
 - **Turn-in hint.** Finished quests say where to hand them in ("Return to Elder Bloodhoof in Thunder Bluff"), in the tooltip and on the details page; from Questie's data when the game doesn't say.
 - **Quest items.** For quests with an item to use, a button in the bottom bar uses it. The game doesn't let add-ons show this kind of button in combat, so it steps aside while you fight and comes back afterwards.

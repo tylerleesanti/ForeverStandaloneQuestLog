@@ -537,6 +537,58 @@ local function SetItemButton(b, item)
     b:Show()
 end
 
+-- The info icon at the end of the quest's name on the details page. Hovering it shows what Questie
+-- knows about the quest: who gives it, who takes it, its required level and its chain.
+local INFO_SIZE = 14
+local infoBtn, measureFS
+
+local function ShowQuestInfo(self)
+    local qi = self.info
+    if not qi then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(self.title or "Quest info", 1, 0.82, 0)
+    for _, row in ipairs({ { "Given by", qi.giver }, { "Turn in to", qi.finisher },
+        { "Required level", qi.requiredLevel }, { "Follows", qi.previous }, { "Leads to", qi.nextQuest } }) do
+        if row[2] then GameTooltip:AddLine("|cffffd100" .. row[1] .. ":|r " .. row[2], 1, 1, 1, true) end
+    end
+    GameTooltip:Show()
+end
+
+local function InfoButton()
+    if infoBtn then return infoBtn end
+    infoBtn = CreateFrame("Button", nil, detailChild)
+    infoBtn:SetSize(INFO_SIZE, INFO_SIZE)
+    infoBtn:SetNormalTexture("Interface\\FriendsFrame\\InformationIcon")
+    infoBtn:SetHighlightTexture("Interface\\FriendsFrame\\InformationIcon")
+    infoBtn:GetHighlightTexture():SetBlendMode("ADD")
+    infoBtn:SetScript("OnEnter", ShowQuestInfo)
+    infoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return infoBtn
+end
+
+-- How wide the last line of a wrapped font string is, so the icon can sit right after it. The game
+-- doesn't report line widths, so this redoes the word wrap with a hidden measuring string.
+local function LastLineWidth(fs, text, width)
+    if not measureFS then
+        measureFS = detailChild:CreateFontString(nil, "ARTWORK")
+        measureFS:Hide()
+    end
+    measureFS:SetFontObject(fs:GetFontObject())
+    local function w(t) measureFS:SetText(t); return measureFS:GetUnboundedStringWidth() end
+    local full = w(text)
+    if full <= width then return full end
+    local line
+    for word in text:gmatch("%S+") do
+        local candidate = line and (line .. " " .. word) or word
+        if line and w(candidate) > width then line = word else line = candidate end
+    end
+    return line and w(line) or full
+end
+
+local function HasQuestInfo(qi)
+    return qi and (qi.giver or qi.finisher or qi.requiredLevel or qi.previous or qi.nextQuest) and true
+end
+
 local function UpdateDetails(q)
     local lines = {}
     local titleFont = ns.fonts.title
@@ -548,6 +600,10 @@ local function UpdateDetails(q)
     if q then
         local d = ns.GetDetails(q)
         add(titleFont, d.title, TITLE_R, TITLE_G, TITLE_B, 5)
+        if HasQuestInfo(d.questie) then
+            -- Leave room for the info icon at the end of the name.
+            lines[#lines].info, lines[#lines].width = d.questie, textW - INFO_SIZE - 4
+        end
         local freq = FrequencyName(q)
         if freq then add(bodyFont, freq .. " quest", 0.1, 0.25, 0.55, 2) end
         if q.timeEnd and not q.complete and not q.failed then
@@ -565,22 +621,6 @@ local function UpdateDetails(q)
         -- A finished quest says where to hand it in, in dark green.
         if d.turnIn then add(bodyFont, d.turnIn, 0.05, 0.4, 0.05, 8) end
 
-        -- From Questie's database: who gives and takes the quest, its level and its chain.
-        local qi = d.questie
-        if qi then
-            local gap = 10
-            local function info(label, value)
-                if value then
-                    add(bodyFont, label .. ": " .. value, TEXT_R, TEXT_G, TEXT_B, gap)
-                    gap = 2
-                end
-            end
-            info("Given by", qi.giver)
-            if not d.turnInFromQuestie then info("Turn in to", qi.finisher) end -- else already said above
-            info("Required level", qi.requiredLevel)
-            info("Follows", qi.previous)
-            info("Leads to", qi.nextQuest)
-        end
         if q.party and #q.party > 0 then
             add(bodyFont, "Party members on this quest: " .. table.concat(q.party, ", "), TEXT_R, TEXT_G, TEXT_B, 6)
         end
@@ -632,6 +672,7 @@ local function UpdateDetails(q)
     local ITEM_FIT = 130
     local cols = math.max(1, math.floor((textW - ITEM_FIT) / ITEM_COL) + 1)
     detailTimer = nil
+    local infoShown = false
     for _, l in ipairs(lines) do
         y = y + l.gap
         if l.items then
@@ -646,15 +687,30 @@ local function UpdateDetails(q)
         else
             numText = numText + 1
             local fs = DetailLine(numText, l.font)
+            fs:SetWidth(l.width or textW)
             fs:SetText(l.text)
             fs:SetTextColor(l.r, l.g, l.b)
             fs:ClearAllPoints()
             fs:SetPoint("TOPLEFT", 4, -y)
-            y = y + fs:GetStringHeight()
+            local height = fs:GetStringHeight()
+            if l.info then
+                -- The info icon, just after the last word of the name, centred on its line.
+                local numLines = math.max(1, fs:GetNumLines())
+                local lineH = height / numLines
+                local b = InfoButton()
+                b.info, b.title = l.info, l.text
+                b:ClearAllPoints()
+                b:SetPoint("LEFT", detailChild, "TOPLEFT", 4 + LastLineWidth(fs, l.text, l.width) + 4,
+                    -(y + (numLines - 0.5) * lineH))
+                b:Show()
+                infoShown = true
+            end
+            y = y + height
             if l.timeEnd then detailTimer = { fs, l.timeEnd } end
         end
     end
     for i = numText + 1, #detailLines do detailLines[i]:Hide() end
+    if infoBtn and not infoShown then infoBtn:Hide() end
     for i = numItems + 1, #itemButtons do
         itemButtons[i]:Hide()
         itemButtons[i].item = nil
