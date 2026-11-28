@@ -682,10 +682,12 @@ local function UpdateDetails(q)
             end
             if d.money then
                 add(bodyFont, "Money: " .. MoneyText(d.money), TEXT_R, TEXT_G, TEXT_B, 4)
+                lines[#lines].step = true -- same shadow as the quest steps, so the reward stands out
             end
             -- Reputation (with Questie): one line per faction, "+250 Stormwind", losses too.
             if d.reputation then
                 add(bodyFont, (REPUTATION or "Reputation") .. ":", TEXT_R, TEXT_G, TEXT_B, 6)
+                lines[#lines].step = true
                 for _, rep in ipairs(d.reputation) do
                     local text = ("%s%d %s"):format(rep.amount > 0 and "+" or "", rep.amount, rep.name)
                     if rep.amount > 0 then
@@ -693,6 +695,7 @@ local function UpdateDetails(q)
                     else
                         add(bodyFont, "  " .. text, 0.55, 0.05, 0.05, 2)
                     end
+                    lines[#lines].step = true
                 end
             end
         end
