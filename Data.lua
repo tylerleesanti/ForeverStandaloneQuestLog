@@ -52,10 +52,41 @@ function ns.PartyOnQuest(questID)
     return names
 end
 
+local function IsRepeatable(questID)
+    if not C_QuestLog.IsRepeatableQuest then return false end
+    local ok, repeatable = pcall(C_QuestLog.IsRepeatableQuest, questID)
+    return ok and repeatable or false
+end
+
+-- Timed quests: the GetTime() at which the time runs out, or nil. C_QuestLog.GetTimeAllowed is the
+-- modern call (as Blizzard's tracker uses it); the classic quest timer list is the fallback.
+local function ClassicTimers()
+    local ends = {}
+    if not GetQuestTimers or not GetQuestIndexForTimer then return ends end
+    local ok, timers = pcall(function() return { GetQuestTimers() } end)
+    if not ok then return ends end
+    for i, seconds in ipairs(timers) do
+        local okIndex, logIndex = pcall(GetQuestIndexForTimer, i)
+        if okIndex and logIndex and type(seconds) == "number" then ends[logIndex] = GetTime() + seconds end
+    end
+    return ends
+end
+
+local function TimeEnd(questID, logIndex, classicEnds)
+    if C_QuestLog.GetTimeAllowed then
+        local ok, total, elapsed = pcall(C_QuestLog.GetTimeAllowed, questID)
+        if ok and type(total) == "number" and type(elapsed) == "number" and total > 0 and elapsed < total then
+            return GetTime() - elapsed + total
+        end
+    end
+    return classicEnds[logIndex]
+end
+
 -- filter: lower-case search text, or nil. A header is kept if its name matches (then all of its
 -- quests show) or if any of its quests match.
 function ns.BuildRows(filter)
     ExpandGameHeaders()
+    local classicEnds = ClassicTimers()
     local rows, numQuests = {}, 0
     local header -- the current header row
     local headerMatches = false
@@ -81,6 +112,9 @@ function ns.BuildRows(filter)
                     failed = C_QuestLog.IsFailed and C_QuestLog.IsFailed(info.questID),
                     watched = IsWatched(info.questID),
                     party = ns.PartyOnQuest(info.questID),
+                    frequency = info.frequency, -- Enum.QuestFrequency: 1 daily, 2 weekly
+                    repeatable = IsRepeatable(info.questID),
+                    timeEnd = TimeEnd(info.questID, i, classicEnds),
                 }
                 if not header then -- quests before any header (rare): give them one
                     header = { isHeader = true, title = OTHER or "Other", count = 0, children = {} }
@@ -210,6 +244,23 @@ function ns.QuestieInfo(questID)
     return info
 end
 
+-- Where to hand in a finished quest: the game's own completion text ("Return to Elder Bloodhoof in
+-- Thunder Bluff.") when it has one, else the nearest turn-in from Questie's database.
+-- Returns the text, and true when it came from Questie.
+function ns.TurnInHint(q)
+    if not q or not q.complete or q.failed then return nil end
+    if GetQuestLogCompletionText then
+        local ok, text = pcall(GetQuestLogCompletionText, q.logIndex)
+        if ok and type(text) == "string" and text ~= "" then return text end
+    end
+    local DB = QuestieModule("QuestieDB")
+    if DB and type(DB.GetQuest) == "function" then
+        local ok, quest = pcall(DB.GetQuest, q.questID)
+        local finisher = ok and type(quest) == "table" and NearestPerson(quest.Finisher)
+        if finisher then return "Return to " .. finisher .. ".", true end
+    end
+end
+
 -- Everything the details pane shows for one quest.
 function ns.GetDetails(q)
     local d = { title = q.title, level = q.level, tag = q.tag, objectives = {} }
@@ -245,5 +296,6 @@ function ns.GetDetails(q)
     d.choices = RewardItems("choice", q.questID)
     d.rewards = RewardItems("reward", q.questID)
     d.questie = ns.QuestieInfo(q.questID)
+    d.turnIn, d.turnInFromQuestie = ns.TurnInHint(q)
     return d
 end

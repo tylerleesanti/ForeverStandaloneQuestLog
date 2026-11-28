@@ -10,6 +10,7 @@ ns.defaults = {
     colorByLevel = true,  -- difficulty colours (grey / green / yellow / orange / red)
     headerColor = { 1, 1, 1 }, -- category titles: white, so they never look like a (yellow) quest
     collapsed = {},       -- [header title] = true, our own collapse state (the game's is left alone)
+    selectedQuest = {},   -- ["Name-Realm"] = questID, the quest each character last had selected
     point = nil,          -- saved window position { point, relPoint, x, y }
     locked = false,       -- true: the window can't be dragged (padlock button)
     width = nil,          -- window size; nil = the classic 682 x 447
@@ -26,6 +27,11 @@ local function CopyDefaults(dst, src)
         end
     end
     return dst
+end
+
+-- "Name-Realm", for settings kept per character.
+function ns.CharKey()
+    return (UnitName("player") or "?") .. "-" .. (GetRealmName() or "?")
 end
 
 function ns.Print(msg)

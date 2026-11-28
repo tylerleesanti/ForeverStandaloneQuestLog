@@ -34,7 +34,12 @@ local countText, searchBox, emptyText
 local abandonBtn, trackBtn, shareBtn, mapBtn
 local rowPool = {}
 local rows = {}          -- current flat row data
-local selectedQuestID
+local selectedQuestID    -- saved per character in ns.db.selectedQuest, so the window reopens on it
+local pendingScroll = true -- scroll the remembered quest into view the first time the window opens
+local expandAllBtn
+local itemBtn, UpdateQuestItem -- the quest item button (Quest item section)
+local detailTimer        -- { fontString, timeEnd } for the details pane's "Time left" line
+local timerTicker
 local dirty = true
 local refreshQueued = false
 
@@ -56,11 +61,49 @@ local function QuestLabel(q)
     return q.title
 end
 
--- The right-hand tag, as the classic log shows it: (Failed) / (Complete) / Elite / Dungeon...
+-- Seconds as a clock: 4:05, or 1:04:05 past an hour.
+local function Clock(seconds)
+    seconds = math.max(0, math.floor(seconds))
+    local h, m, s = math.floor(seconds / 3600), math.floor(seconds / 60) % 60, seconds % 60
+    if h > 0 then return ("%d:%02d:%02d"):format(h, m, s) end
+    return ("%d:%02d"):format(m, s)
+end
+
+local function TimeLeft(q)
+    return q.timeEnd and math.max(0, q.timeEnd - GetTime())
+end
+
+-- Daily / Weekly / Repeatable, or nil.
+local function FrequencyName(q)
+    local F = Enum and Enum.QuestFrequency
+    if q.frequency == (F and F.Daily or 1) then return DAILY or "Daily" end
+    if q.frequency == (F and F.Weekly or 2) then return WEEKLY or "Weekly" end
+    if q.repeatable then return "Repeatable" end
+end
+
+-- The right-hand tag, as the classic log shows it: (Failed) / (Complete) / Elite / Dungeon, with
+-- (Daily), (Weekly) or (Repeatable) added, and the time left on a timed quest.
 local function QuestTag(q)
     if q.failed then return "(" .. (FAILED or "Failed") .. ")" end
     if q.complete then return "(" .. (COMPLETE or "Complete") .. ")" end
-    return q.tag
+    local tag = q.tag
+    local freq = FrequencyName(q)
+    if freq then tag = tag and (tag .. " (" .. freq .. ")") or ("(" .. freq .. ")") end
+    if q.timeEnd then
+        local clock = "|cffff6060" .. Clock(TimeLeft(q)) .. "|r"
+        tag = tag and (clock .. " " .. tag) or clock
+    end
+    return tag
+end
+
+-- The full tag for a list row: party members on the quest as a count first, then QuestTag.
+-- [2] (Complete)
+local function RowTag(q)
+    local tag = QuestTag(q) or ""
+    if q.party and #q.party > 0 then
+        tag = ("|cff99ccff[%d]|r%s"):format(#q.party, tag ~= "" and (" " .. tag) or "")
+    end
+    return tag
 end
 
 -- Money as gold/silver/copper icons. The global GetCoinTextureString is broken on Forever (it calls
@@ -124,12 +167,20 @@ end
 local function ShowRowTooltip(row, q)
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:SetText(QuestLabel(q), QuestColor(q.level))
+    local freq = FrequencyName(q)
+    if freq then GameTooltip:AddLine(freq .. " quest", 0.6, 0.8, 1) end
+    if q.timeEnd and not q.complete and not q.failed then
+        GameTooltip:AddLine("Time left: " .. Clock(TimeLeft(q)), 1, 0.4, 0.4)
+    end
     if q.failed then
         GameTooltip:AddLine(FAILED or "Failed", 1, 0.2, 0.2)
     elseif q.complete then
+        -- A finished quest shows where to hand it in instead of its (all done) objectives.
         GameTooltip:AddLine("Ready to turn in", 0.2, 1, 0.2)
+        local hint = ns.TurnInHint(q)
+        if hint then GameTooltip:AddLine(hint, 1, 1, 1, true) end
     end
-    local objectives = C_QuestLog.GetQuestObjectives and C_QuestLog.GetQuestObjectives(q.questID)
+    local objectives = not q.complete and C_QuestLog.GetQuestObjectives and C_QuestLog.GetQuestObjectives(q.questID)
     for _, o in ipairs(objectives or {}) do
         if o.text and o.text ~= "" then
             if o.finished then
@@ -248,16 +299,28 @@ local function UpdateList()
         countText:SetTextColor(1, 0.82, 0)
     end
 
-    -- Keep the selection if the quest is still listed, otherwise fall back to the first quest.
-    local found, first
+    -- Keep the selection if the quest is still listed (it's remembered between sessions), otherwise
+    -- fall back to the quest you're super-tracking, then to the first quest.
+    local superID = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+    local found, super, first
     for _, r in ipairs(rows) do
         if not r.isHeader then
             first = first or r
             if r.questID == selectedQuestID then found = r end
+            if superID and r.questID == superID then super = r end
         end
     end
-    local selected = found or first
+    local selected = found or super or first
     selectedQuestID = selected and selected.questID
+    if selectedQuestID then ns.db.selectedQuest[ns.CharKey()] = selectedQuestID end
+
+    -- Expand / Collapse all: a minus while any category is open (click closes them all), else a plus.
+    local anyOpen = false
+    for _, r in ipairs(rows) do
+        if r.isHeader and not r.collapsed then anyOpen = true end
+    end
+    expandAllBtn.collapseAll = anyOpen
+    expandAllBtn.icon:SetTexture(BTN .. (anyOpen and "UI-MinusButton-Up" or "UI-PlusButton-Up"))
 
     local rowHeight = ns.RowHeight()
     for i, r in ipairs(rows) do
@@ -287,12 +350,7 @@ local function UpdateList()
             row.text:SetFontObject(ns.fonts.name)
             row.text:SetText(QuestLabel(r))
             row.text:SetTextColor(cr, cg, cb)
-            -- Party members on the quest, as a count before the tag: [2] (Complete)
-            local tag = QuestTag(r) or ""
-            if r.party and #r.party > 0 then
-                tag = ("|cff99ccff[%d]|r%s"):format(#r.party, tag ~= "" and (" " .. tag) or "")
-            end
-            row.tag:SetText(tag)
+            row.tag:SetText(RowTag(r))
             row.tag:SetTextColor(cr, cg, cb)
             local isSelected = r.questID == selectedQuestID
             row.selected:SetShown(isSelected)
@@ -305,11 +363,14 @@ local function UpdateList()
     end
     listChild:SetHeight(math.max(1, #rows * rowHeight))
 
-    if revealQuestID then
-        -- Scroll the list so the quest is in the middle (or as near as the list allows).
-        -- Done on the next frame, once the scroll frame has picked up the list's new height.
+    -- Scroll the list so the quest is in the middle (or as near as the list allows): the quest being
+    -- opened to, or the remembered one the first time the window opens.
+    -- Done on the next frame, once the scroll frame has picked up the list's new height.
+    local scrollTo = revealQuestID or (pendingScroll and selectedQuestID)
+    pendingScroll = false
+    if scrollTo then
         for i, r in ipairs(rows) do
-            if r.questID == revealQuestID then
+            if not r.isHeader and r.questID == scrollTo then
                 local target = (i - 1) * rowHeight - (listScroll:GetHeight() - rowHeight) / 2
                 local maxScroll = math.max(0, #rows * rowHeight - listScroll:GetHeight())
                 local scroll = math.min(math.max(0, target), maxScroll)
@@ -465,6 +526,12 @@ local function UpdateDetails(q)
     if q then
         local d = ns.GetDetails(q)
         add(titleFont, d.title, TITLE_R, TITLE_G, TITLE_B, 5)
+        local freq = FrequencyName(q)
+        if freq then add(bodyFont, freq .. " quest", 0.1, 0.25, 0.55, 2) end
+        if q.timeEnd and not q.complete and not q.failed then
+            add(bodyFont, "Time left: " .. Clock(TimeLeft(q)), 0.6, 0.05, 0.05, 2)
+            lines[#lines].timeEnd = q.timeEnd -- ticks down every second (see TickTimers)
+        end
         if d.objectiveText then add(bodyFont, d.objectiveText, TEXT_R, TEXT_G, TEXT_B, 6) end
         for _, o in ipairs(d.objectives) do
             if o.finished then
@@ -473,6 +540,8 @@ local function UpdateDetails(q)
                 add(bodyFont, "- " .. o.text, TEXT_R, TEXT_G, TEXT_B, 3)
             end
         end
+        -- A finished quest says where to hand it in, in dark green.
+        if d.turnIn then add(bodyFont, d.turnIn, 0.05, 0.4, 0.05, 8) end
 
         -- From Questie's database: who gives and takes the quest, its level and its chain.
         local qi = d.questie
@@ -485,7 +554,7 @@ local function UpdateDetails(q)
                 end
             end
             info("Given by", qi.giver)
-            info("Turn in to", qi.finisher)
+            if not d.turnInFromQuestie then info("Turn in to", qi.finisher) end -- else already said above
             info("Required level", qi.requiredLevel)
             info("Follows", qi.previous)
             info("Leads to", qi.nextQuest)
@@ -528,6 +597,7 @@ local function UpdateDetails(q)
     -- one when the window is made narrower, three or more when it's made much wider.
     local ITEM_FIT = 130
     local cols = math.max(1, math.floor((textW - ITEM_FIT) / ITEM_COL) + 1)
+    detailTimer = nil
     for _, l in ipairs(lines) do
         y = y + l.gap
         if l.items then
@@ -547,6 +617,7 @@ local function UpdateDetails(q)
             fs:ClearAllPoints()
             fs:SetPoint("TOPLEFT", 4, -y)
             y = y + fs:GetStringHeight()
+            if l.timeEnd then detailTimer = { fs, l.timeEnd } end
         end
     end
     for i = numText + 1, #detailLines do detailLines[i]:Hide() end
@@ -563,6 +634,19 @@ local function UpdateDetails(q)
     local canShare = q and IsInGroup() and C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(q.questID)
     shareBtn:SetEnabled(canShare and true or false)
     mapBtn:SetEnabled(q ~= nil)
+    UpdateQuestItem(q)
+end
+
+-- Once a second while the window is open: count down the timed quests in the list and on the
+-- details page, without rebuilding anything.
+local function TickTimers()
+    for _, row in ipairs(rowPool) do
+        local q = row:IsShown() and row.data
+        if q and not q.isHeader and q.timeEnd then row.tag:SetText(RowTag(q)) end
+    end
+    if detailTimer then
+        detailTimer[1]:SetText("Time left: " .. Clock(detailTimer[2] - GetTime()))
+    end
 end
 
 ------------------------------------------------------------------------
@@ -884,6 +968,150 @@ local function MakeCloseButton(parent)
 end
 
 ------------------------------------------------------------------------
+-- Expand / Collapse all
+--
+-- The classic log's "All" +/- above the list: closes every category while any is open, otherwise
+-- opens them all.
+------------------------------------------------------------------------
+local function MakeExpandAllButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(44, 20)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(16, 16)
+    b.icon:SetPoint("LEFT")
+    b.icon:SetTexture(BTN .. "UI-MinusButton-Up")
+    local glow = b:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints(b.icon)
+    glow:SetTexture(BTN .. "UI-PlusButton-Hilight")
+    glow:SetBlendMode("ADD")
+    local text = b:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    text:SetPoint("LEFT", b.icon, "RIGHT", 2, 0)
+    text:SetText(ALL or "All")
+    b:SetScript("OnClick", function(self)
+        local collapse = self.collapseAll
+        for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+            local info = C_QuestLog.GetInfo(i)
+            if info and info.isHeader and info.title then
+                ns.db.collapsed[info.title] = collapse or nil
+            end
+        end
+        ns.db.collapsed[OTHER or "Other"] = collapse or nil -- the made-up header for quests outside any
+        ns.Refresh()
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self.collapseAll and "Collapse all" or "Expand all")
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+------------------------------------------------------------------------
+-- Quest item
+--
+-- For quests with an item to use ("Use the Torch on the Hut"), a button in the bottom bar to use it.
+-- Using an item takes a secure action button, and the game won't let an add-on show, hide or move
+-- one in combat. A secure button inside this window would also lock the window itself in combat
+-- (it couldn't be closed with Escape), so the button belongs to UIParent instead and is only
+-- placed over the window: it's taken away as combat starts and comes back when combat ends.
+------------------------------------------------------------------------
+local function ItemTooltip_Special(b)
+    GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+    if not (b.logIndex and pcall(GameTooltip.SetQuestLogSpecialItem, GameTooltip, b.logIndex)) and b.link then
+        GameTooltip:SetHyperlink(b.link)
+    end
+    GameTooltip:AddLine("Click to use", 0.2, 1, 0.2)
+    GameTooltip:Show()
+end
+
+local function UpdateItemCooldown(b)
+    if not b.logIndex or not GetQuestLogSpecialItemCooldown then return end
+    local ok, start, duration, enable = pcall(GetQuestLogSpecialItemCooldown, b.logIndex)
+    if ok and start and CooldownFrame_Set then
+        CooldownFrame_Set(b.cooldown, start, duration, enable)
+        local grey = duration and duration > 0 and enable == 0
+        b.icon:SetVertexColor(grey and 0.4 or 1, grey and 0.4 or 1, grey and 0.4 or 1)
+    end
+end
+
+local function MakeQuestItemButton()
+    local b = CreateFrame("Button", "ForeverQuestLogItemButton", UIParent, "SecureActionButtonTemplate")
+    b:SetSize(26, 26)
+    b:SetFrameStrata(frame:GetFrameStrata())
+    b:RegisterForClicks("AnyUp")
+    b:SetAttribute("type", "item")
+    b:Hide()
+
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints()
+    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.count:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.cooldown = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+    b.cooldown:SetAllPoints()
+    b:SetPushedTexture(BTN .. "UI-Quickslot-Depress")
+    b:SetHighlightTexture(BTN .. "ButtonHilight-Square")
+    b:GetHighlightTexture():SetBlendMode("ADD")
+
+    -- The item's name, to the left of the button.
+    b.label = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    b.label:SetPoint("RIGHT", b, "LEFT", -6, 0)
+    b.label:SetWidth(170)
+    b.label:SetJustifyH("RIGHT")
+    b.label:SetWordWrap(false)
+
+    b:SetScript("OnEnter", ItemTooltip_Special)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- The window raises itself when clicked; keep the button above it.
+    b:SetScript("OnUpdate", function(self)
+        local level = frame:GetFrameLevel() + 20
+        if self:GetFrameLevel() ~= level then self:SetFrameLevel(level) end
+    end)
+    b:RegisterEvent("PLAYER_REGEN_DISABLED")
+    b:RegisterEvent("PLAYER_REGEN_ENABLED")
+    b:RegisterEvent("BAG_UPDATE_COOLDOWN")
+    b:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            -- The last moment before combat locks it: take it off the window.
+            self:Hide()
+            self:ClearAllPoints()
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            ns.MarkDirty() -- puts it back if the window is still open
+        elseif self:IsShown() then
+            UpdateItemCooldown(self)
+        end
+    end)
+    return b
+end
+
+-- Shows the item of quest q in the bottom bar, or hides the button. Nothing changes in combat.
+function UpdateQuestItem(q)
+    if not itemBtn or InCombatLockdown() then return end
+    local link, texture, charges, showWhenComplete
+    if q and q.logIndex and GetQuestLogSpecialItemInfo then
+        local ok
+        ok, link, texture, charges, showWhenComplete = pcall(GetQuestLogSpecialItemInfo, q.logIndex)
+        if not ok then link = nil end
+    end
+    if not link or (q.complete and not showWhenComplete) or not frame:IsShown() then
+        itemBtn:Hide()
+        itemBtn.logIndex, itemBtn.link = nil, nil
+        return
+    end
+    local itemID = tonumber(link:match("item:(%d+)"))
+    itemBtn:SetAttribute("item", itemID and ("item:" .. itemID) or link)
+    itemBtn.logIndex, itemBtn.link = q.logIndex, link
+    itemBtn.icon:SetTexture(texture or 134400)
+    itemBtn.count:SetText(charges and charges > 1 and charges or "")
+    itemBtn.label:SetText(link:match("%[(.-)%]") or "")
+    UpdateItemCooldown(itemBtn)
+    -- In the bottom bar, left of the Close button.
+    itemBtn:ClearAllPoints()
+    itemBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -95, 12)
+    itemBtn:Show()
+end
+
+------------------------------------------------------------------------
 -- Window size
 ------------------------------------------------------------------------
 -- Cuts the classic art into the ART_COLS x ART_ROWS grid and places each piece, stretching the
@@ -1053,10 +1281,13 @@ function ns.CreateWindow()
     mapBtn = MakeMapButton(frame)
     mapBtn:SetPoint("TOPRIGHT", -25, -38)
 
-    -- Search box and quest count in the band above the list.
+    -- Expand / Collapse all, the search box and the quest count in the band above the list.
+    expandAllBtn = MakeExpandAllButton(frame)
+    expandAllBtn:SetPoint("TOPLEFT", 76, -44)
+
     searchBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    searchBox:SetSize(150, 20)
-    searchBox:SetPoint("TOPLEFT", 80, -44)
+    searchBox:SetSize(112, 20)
+    searchBox:SetPoint("TOPLEFT", 128, -44)
     searchBox:SetAutoFocus(false)
     searchBox:SetScript("OnTextChanged", function() ns.Refresh() end)
     searchBox:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
@@ -1123,14 +1354,24 @@ function ns.CreateWindow()
     closeBtn:SetHeight(22)
     closeBtn:SetPoint("BOTTOMRIGHT", -7, 14)
 
+    itemBtn = MakeQuestItemButton()
+
     frame:SetScript("OnShow", function()
         ns.ApplyPosition()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN or 844)
-        if dirty then ns.Refresh() end
+        if pendingScroll then
+            -- First open this session: back to the quest this character last had selected (read
+            -- here rather than at load, when the character's name may not be known yet).
+            selectedQuestID = selectedQuestID or ns.db.selectedQuest[ns.CharKey()]
+        end
+        if dirty then ns.Refresh() else UpdateQuestItem(SelectedRow()) end
+        if not timerTicker then timerTicker = C_Timer.NewTicker(1, TickTimers) end
     end)
     frame:SetScript("OnHide", function()
         PlaySound(SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_CLOSE or 845)
         searchBox:ClearFocus()
+        if timerTicker then timerTicker:Cancel(); timerTicker = nil end
+        if not InCombatLockdown() then itemBtn:Hide() end -- in combat it's already gone
     end)
 
     ns.ApplySize()
