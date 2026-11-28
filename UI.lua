@@ -562,7 +562,7 @@ end
 
 -- The info icon at the end of the quest's name on the details page. Hovering it shows what Questie
 -- knows about the quest: who gives it, who takes it, its required level and its chain.
-local INFO_SIZE = 14
+local INFO_SIZE = 16
 local infoBtn, measureFS
 
 local function ShowQuestInfo(self)
@@ -581,16 +581,13 @@ local function InfoButton()
     if infoBtn then return infoBtn end
     infoBtn = CreateFrame("Button", nil, detailChild)
     infoBtn:SetSize(INFO_SIZE, INFO_SIZE)
-    infoBtn:SetNormalTexture("Interface\\FriendsFrame\\InformationIcon")
-    infoBtn:SetHighlightTexture("Interface\\FriendsFrame\\InformationIcon")
-    infoBtn:GetHighlightTexture():SetBlendMode("ADD")
-    -- A dark outline, so the icon stands out on the parchment: a slightly larger copy of the
-    -- (round) icon behind it, drawn in near-black.
-    local outline = infoBtn:CreateTexture(nil, "BACKGROUND")
-    outline:SetTexture("Interface\\FriendsFrame\\InformationIcon")
-    outline:SetPoint("CENTER")
-    outline:SetSize(INFO_SIZE + 4, INFO_SIZE + 4)
-    outline:SetVertexColor(0, 0, 0, 0.9)
+    -- Our own icon (Media/info.tga, made by tools/make_info_icon.py): a gold coin with a dark rim
+    -- and a dark "i". The game's InformationIcon is tiny and looked blurry scaled up.
+    infoBtn:SetNormalTexture(MEDIA .. "info")
+    infoBtn:SetHighlightTexture(MEDIA .. "info")
+    local hl = infoBtn:GetHighlightTexture()
+    hl:SetBlendMode("ADD")
+    hl:SetAlpha(0.35)
     infoBtn:SetScript("OnEnter", ShowQuestInfo)
     infoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return infoBtn
