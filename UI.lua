@@ -62,6 +62,7 @@ local frame, listScroll, listChild, detailScroll, detailChild
 local book, titleText, closeX, cogBtn -- title bar pieces the theme restyles
 local darkArt                         -- the dark theme's flat textures (see BuildDarkArt)
 local BuildDarkArt
+local buttonBar, bottomClose          -- the bottom buttons, placed per theme in ns.ApplySize
 local countText, searchBox, emptyText
 local abandonBtn, trackBtn, shareBtn, mapBtn
 local rowPool = {}
@@ -1343,7 +1344,7 @@ function UpdateQuestItem(q)
     UpdateItemCooldown(itemBtn)
     -- In the bottom bar, left of the Close button.
     itemBtn:ClearAllPoints()
-    itemBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -95, 12)
+    itemBtn:SetPoint("RIGHT", bottomClose, "LEFT", -8, 0)
     itemBtn:Show()
 end
 
@@ -1408,6 +1409,30 @@ function ns.ApplySize()
     listChild:SetWidth(listW)
     countText:ClearAllPoints()
     countText:SetPoint("TOPRIGHT", frame, "TOPLEFT", LIST_X + listW, -48)
+
+    -- Bottom buttons. Classic: where the classic log had them. Dark: just under the panels, as wide
+    -- as the list panel, spaced apart, with Close lined up with the details panel's right edge.
+    buttonBar:ClearAllPoints()
+    for _, b in ipairs({ abandonBtn, shareBtn, trackBtn, bottomClose }) do b:ClearAllPoints() end
+    if IsDark() then
+        buttonBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", LIST_X - 6, 8)
+        buttonBar:SetSize(listW + 30, 22)
+        for _, b in ipairs({ abandonBtn, shareBtn, trackBtn }) do b:SetHeight(22) end
+        abandonBtn:SetPoint("LEFT", 0, 0)
+        trackBtn:SetPoint("RIGHT", 0, 0)
+        shareBtn:SetPoint("LEFT", abandonBtn, "RIGHT", 4, 0)
+        shareBtn:SetPoint("RIGHT", trackBtn, "LEFT", -4, 0)
+        bottomClose:SetPoint("BOTTOMRIGHT", -6, 8)
+    else
+        buttonBar:SetPoint("BOTTOMLEFT", 18, 11)
+        buttonBar:SetSize(307, 26)
+        for _, b in ipairs({ abandonBtn, shareBtn, trackBtn }) do b:SetHeight(21) end
+        abandonBtn:SetPoint("LEFT", 0, 1)
+        trackBtn:SetPoint("RIGHT", -3, 1)
+        shareBtn:SetPoint("LEFT", abandonBtn, "RIGHT")
+        shareBtn:SetPoint("RIGHT", trackBtn, "LEFT")
+        bottomClose:SetPoint("BOTTOMRIGHT", -7, 14)
+    end
 
     local detailW = DETAIL_W + extraDetail
     detailScroll:SetSize(detailW, DETAIL_H + extraH)
@@ -1500,11 +1525,11 @@ function BuildDarkArt()
     -- Panels behind the list and the details, each taking in its scroll bar.
     local list = DarkTexture("BACKGROUND", -6, DARK.panel)
     list:SetPoint("TOPLEFT", listScroll, "TOPLEFT", -6, 4)
-    list:SetPoint("BOTTOMRIGHT", listScroll, "BOTTOMRIGHT", 24, -4)
+    list:SetPoint("BOTTOMRIGHT", listScroll, "BOTTOMRIGHT", 24, -2)
     edges(list, DARK.edge)
     local detail = DarkTexture("BACKGROUND", -6, DARK.panel)
     detail:SetPoint("TOPLEFT", detailScroll, "TOPLEFT", -2, 4)
-    detail:SetPoint("BOTTOMRIGHT", detailScroll, "BOTTOMRIGHT", 26, -4)
+    detail:SetPoint("BOTTOMRIGHT", detailScroll, "BOTTOMRIGHT", 26, -2)
     edges(detail, DARK.edge)
 
     -- A flat box for the search field, in place of its rounded art.
@@ -1705,38 +1730,31 @@ function ns.CreateWindow()
 
     -- Bottom buttons: Abandon | Share | Track along the left, Close on the right. The classic
     -- log widens and lifts this bar when docked in the dual-pane window (QuestLogControlPanel_UpdatePosition).
-    local panel = CreateFrame("Frame", nil, frame)
-    panel:SetSize(307, 26)
-    panel:SetPoint("BOTTOMLEFT", 18, 11)
+    buttonBar = CreateFrame("Frame", nil, frame) -- placed in ns.ApplySize
 
-    abandonBtn = MakeButton(panel, ABANDON_QUEST_ABBREV or "Abandon", 110, function()
+    abandonBtn = MakeButton(buttonBar, ABANDON_QUEST_ABBREV or "Abandon", 110, function()
         local q = SelectedRow()
         if q then
             local dialog = StaticPopup_Show("FOREVERQUESTLOG_ABANDON", q.title)
             if dialog then dialog.data = q.questID end
         end
     end)
-    abandonBtn:SetPoint("LEFT", 0, 1)
 
-    trackBtn = MakeButton(panel, TRACK_QUEST_ABBREV or "Track", 100, function()
+    trackBtn = MakeButton(buttonBar, TRACK_QUEST_ABBREV or "Track", 100, function()
         local q = SelectedRow()
         if q then ToggleWatch(q.questID) end
     end)
-    trackBtn:SetPoint("RIGHT", -3, 1)
 
-    shareBtn = MakeButton(panel, SHARE_QUEST_ABBREV or "Share", 1, function()
+    shareBtn = MakeButton(buttonBar, SHARE_QUEST_ABBREV or "Share", 1, function()
         local q = SelectedRow()
         if q then
             C_QuestLog.SetSelectedQuest(q.questID)
             QuestLogPushQuest()
         end
     end)
-    shareBtn:SetPoint("LEFT", abandonBtn, "RIGHT")
-    shareBtn:SetPoint("RIGHT", trackBtn, "LEFT")
 
-    local closeBtn = MakeButton(frame, CLOSE or "Close", 80, function() frame:Hide() end)
-    closeBtn:SetHeight(22)
-    closeBtn:SetPoint("BOTTOMRIGHT", -7, 14)
+    bottomClose = MakeButton(frame, CLOSE or "Close", 80, function() frame:Hide() end)
+    bottomClose:SetHeight(22)
 
     itemBtn = MakeQuestItemButton()
     BuildDarkArt()
