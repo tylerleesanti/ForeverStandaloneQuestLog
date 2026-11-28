@@ -727,7 +727,7 @@ local function UpdateDetails(q)
             if l.step and ns.db.textShadow then
                 -- The quest steps (objectives and the turn-in line) get a dark drop shadow so they
                 -- stand out from the rest of the page.
-                fs:SetShadowColor(0, 0, 0, 0.6)
+                fs:SetShadowColor(0, 0, 0, 0.3)
                 fs:SetShadowOffset(1, -1)
             end
             fs:ClearAllPoints()
