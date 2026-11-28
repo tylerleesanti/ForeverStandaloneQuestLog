@@ -763,8 +763,11 @@ local function UpdateDetails(q)
             local x = 0
             if l.indent then
                 -- Indented by the width of l.indent in this font (measured with this font string).
-                fs:SetText(l.indent)
+                -- (with and without a trailing letter, so a trailing space is counted either way)
+                fs:SetText(l.indent .. "x")
                 x = fs:GetUnboundedStringWidth()
+                fs:SetText("x")
+                x = x - fs:GetUnboundedStringWidth()
             end
             fs:SetWidth((l.width or textW) - x)
             fs:SetText(l.text)
