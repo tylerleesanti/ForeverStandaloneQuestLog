@@ -572,10 +572,11 @@ local function ShowQuestInfo(self)
     GameTooltip:SetText(self.title or "Quest info", 1, 0.82, 0)
     for _, row in ipairs({ { "Given by", qi.giver }, { "Turn in to", qi.finisher },
         { "Required level", qi.requiredLevel }, { "Follows", qi.previous }, { "Leads to", qi.nextQuest } }) do
-        if row[2] then GameTooltip:AddLine("|cffffd100" .. row[1] .. ":|r " .. row[2], 1, 1, 1, true) end
+        -- No wrapping: the tooltip grows to fit its longest line, so names stay on one line.
+        if row[2] then GameTooltip:AddLine("|cffffd100" .. row[1] .. ":|r " .. row[2], 1, 1, 1, false) end
     end
     if self.questID then
-        GameTooltip:AddLine("|cffffd100Quest ID:|r " .. self.questID, 1, 1, 1, true)
+        GameTooltip:AddLine("|cffffd100Quest ID:|r " .. self.questID, 1, 1, 1, false)
     end
     GameTooltip:Show()
 end
