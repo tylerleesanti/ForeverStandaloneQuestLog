@@ -561,6 +561,13 @@ local function InfoButton()
     infoBtn:SetNormalTexture("Interface\\FriendsFrame\\InformationIcon")
     infoBtn:SetHighlightTexture("Interface\\FriendsFrame\\InformationIcon")
     infoBtn:GetHighlightTexture():SetBlendMode("ADD")
+    -- A dark outline, so the icon stands out on the parchment: a slightly larger copy of the
+    -- (round) icon behind it, drawn in near-black.
+    local outline = infoBtn:CreateTexture(nil, "BACKGROUND")
+    outline:SetTexture("Interface\\FriendsFrame\\InformationIcon")
+    outline:SetPoint("CENTER")
+    outline:SetSize(INFO_SIZE + 4, INFO_SIZE + 4)
+    outline:SetVertexColor(0, 0, 0, 0.9)
     infoBtn:SetScript("OnEnter", ShowQuestInfo)
     infoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return infoBtn
