@@ -442,19 +442,14 @@ local function ItemButton(i)
     local box = CreateFrame("Frame", nil, b)
     box:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 1, -2)
     box:SetSize(102, 33)
-    local fill = box:CreateTexture(nil, "BACKGROUND")
-    fill:SetAllPoints()
-    fill:SetColorTexture(0, 0, 0, 0.6)
-    local EDGE = 2
-    b.edges = {}
-    for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, EDGE }, { "BOTTOMLEFT", "BOTTOMRIGHT", 0, EDGE },
-        { "TOPLEFT", "BOTTOMLEFT", EDGE, 0 }, { "TOPRIGHT", "BOTTOMRIGHT", EDGE, 0 } }) do
+    b.box = box
+    b.fill = box:CreateTexture(nil, "BACKGROUND")
+    b.fill:SetColorTexture(0, 0, 0, 0.6)
+    b.edges = {} -- four sides, then four corner pixels (placed by LayoutNameBox)
+    for k = 1, 8 do
         local e = box:CreateTexture(nil, "BORDER")
         e:SetColorTexture(1, 1, 1)
-        e:SetPoint(side[1])
-        e:SetPoint(side[2])
-        if side[3] > 0 then e:SetWidth(side[3]) else e:SetHeight(side[4]) end
-        b.edges[#b.edges + 1] = e
+        b.edges[k] = e
     end
     b.name = box:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     b.name:SetPoint("TOPLEFT", 6, -2)
@@ -486,6 +481,32 @@ local function ItemButton(i)
     return b
 end
 
+-- Places the name box's border one screen pixel thick, whatever the UI scale, with rounded
+-- corners: each side stops two pixels short of the corner, and a single pixel set in diagonally
+-- joins it to the next side. The dark fill sits inside the border, so its corners are cut too.
+local function LayoutNameBox(b)
+    local p = 1
+    if PixelUtil and PixelUtil.GetNearestPixelSize then
+        p = PixelUtil.GetNearestPixelSize(1, b.box:GetEffectiveScale(), 1)
+    end
+    if b.edgePixel == p then return end
+    b.edgePixel = p
+    b.fill:ClearAllPoints()
+    b.fill:SetPoint("TOPLEFT", p, -p)
+    b.fill:SetPoint("BOTTOMRIGHT", -p, p)
+    local e = b.edges
+    for k = 1, 8 do e[k]:ClearAllPoints() end
+    e[1]:SetPoint("TOPLEFT", 2 * p, 0);     e[1]:SetPoint("TOPRIGHT", -2 * p, 0);     e[1]:SetHeight(p)
+    e[2]:SetPoint("BOTTOMLEFT", 2 * p, 0);  e[2]:SetPoint("BOTTOMRIGHT", -2 * p, 0);  e[2]:SetHeight(p)
+    e[3]:SetPoint("TOPLEFT", 0, -2 * p);    e[3]:SetPoint("BOTTOMLEFT", 0, 2 * p);    e[3]:SetWidth(p)
+    e[4]:SetPoint("TOPRIGHT", 0, -2 * p);   e[4]:SetPoint("BOTTOMRIGHT", 0, 2 * p);   e[4]:SetWidth(p)
+    e[5]:SetPoint("TOPLEFT", p, -p)
+    e[6]:SetPoint("TOPRIGHT", -p, -p)
+    e[7]:SetPoint("BOTTOMLEFT", p, p)
+    e[8]:SetPoint("BOTTOMRIGHT", -p, p)
+    for k = 5, 8 do e[k]:SetSize(p, p) end
+end
+
 local function SetItemButton(b, item)
     b.item = item
     b.icon:SetTexture(item.texture or 134400) -- question mark until the item loads
@@ -510,6 +531,7 @@ local function SetItemButton(b, item)
     b.name:SetTextColor(r, g, bl)
     -- The box's border takes the same colour; common (white) items get a softer, half-strength one.
     local plain = r > 0.95 and g > 0.95 and bl > 0.95
+    LayoutNameBox(b)
     for _, e in ipairs(b.edges) do e:SetVertexColor(r, g, bl, plain and 0.5 or 1) end
     b.lastShift = nil
     b:Show()
