@@ -572,7 +572,7 @@ local function ShowQuestInfo(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText(self.title or "Quest info", 1, 0.82, 0)
     for _, row in ipairs({ { "Given by", qi.giver }, { "Turn in to", qi.finisher },
-        { "Required level", qi.requiredLevel }, { "Previous quest in chain", qi.previous }, { "Next quest in chain", qi.nextQuest } }) do
+        { "Required level", qi.requiredLevel }, { "Follows", qi.previous }, { "Leads to", qi.nextQuest } }) do
         if row[2] then GameTooltip:AddLine("|cffffd100" .. row[1] .. ":|r " .. row[2], 1, 1, 1, true) end
     end
     GameTooltip:Show()
