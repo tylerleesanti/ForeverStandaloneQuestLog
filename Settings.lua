@@ -215,13 +215,8 @@ local function Sync()
         local c = ns.db.headerColor
         widgets.swatch.fill:SetColorTexture(c[1], c[2], c[3])
     end
-    -- The theme in use shows as a held-down (highlighted) button.
-    for theme, b in pairs(widgets.themes or {}) do
-        local selected = (ns.db.theme or "classic") == theme
-        if selected then b:LockHighlight() else b:UnlockHighlight() end
-        -- On the dark theme the flat highlight is faint, so the chosen one is lit a little more.
-        if b.flat then b.flat.hl:SetColorTexture(1, 1, 1, selected and 0.16 or 0.08) end
-    end
+    -- The dropdown shows the theme in use (it reads the radio state when the menu is regenerated).
+    if widgets.themeDropdown then widgets.themeDropdown:GenerateMenu() end
     syncing = false
 end
 
@@ -242,6 +237,12 @@ local function AttachPanel()
         panel:SetPoint("TOPLEFT", settingsWindow, "TOPRIGHT", -4, -12) -- tucked under the classic frame's edge
     end
 end
+
+-- The themes in the Theme dropdown: { saved key, label }. (Each theme's look is in UI.lua.)
+local THEMES = {
+    { "classic", "Classic" },
+    { "dark", "Dark" },
+}
 
 local CLASSIC_BACKDROP = {
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -332,23 +333,19 @@ function ns.CreateSettings(window)
     local themeLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     themeLabel:SetPoint("TOPLEFT", swatchLabel, "BOTTOMLEFT", 0, -18)
     themeLabel:SetText("Theme")
-    widgets.themes = {}
-    local prev
-    for _, t in ipairs({ { "classic", "Classic" }, { "dark", "Dark" } }) do
-        local b = CreateFrame("Button", nil, panel)
-        b:SetSize(72, 21)
-        if prev then
-            b:SetPoint("LEFT", prev, "RIGHT", 6, 0)
-        else
-            b:SetPoint("LEFT", themeLabel, "RIGHT", 12, 0)
+    -- A dropdown (the game's own, as in the AddOn list), so more themes can simply be added to THEMES.
+    local dd = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    dd:SetWidth(130)
+    dd:SetPoint("LEFT", themeLabel, "RIGHT", 12, 0)
+    dd:SetupMenu(function(_, root)
+        for _, t in ipairs(THEMES) do
+            root:CreateRadio(t[2], function() return (ns.db.theme or "classic") == t[1] end, function()
+                ns.db.theme = t[1]
+                ns.ApplyTheme()
+            end)
         end
-        ns.StyleClassicButton(b, t[2], function()
-            ns.db.theme = t[1]
-            ns.ApplyTheme()
-        end)
-        widgets.themes[t[1]] = b
-        prev = b
-    end
+    end)
+    widgets.themeDropdown = dd
 
     local reset = CreateFrame("Button", nil, panel)
     reset:SetSize(140, 21)
