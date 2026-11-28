@@ -283,14 +283,25 @@ function ns.ReputationRewards(questID)
     return #list > 0 and list or nil
 end
 
+-- A quest text reduced for comparing: no colour codes, case, spaces or punctuation.
+local function Plain(s)
+    if type(s) ~= "string" then return nil end
+    s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):lower():gsub("[%s%p]", "")
+    return s
+end
+
 -- Where to hand in a finished quest: the game's own completion text ("Return to Elder Bloodhoof in
 -- Thunder Bluff.") when it has one, else the nearest turn-in from Questie's database.
+-- `shown` (optional) holds the Plain() texts already on the page: some quests' completion text is
+-- just their summary again ("Bring Deliah's Ring to Raleigh."), so that one gives way to Questie's.
 -- Returns the text, and true when it came from Questie.
-function ns.TurnInHint(q)
+function ns.TurnInHint(q, shown)
     if not q or not q.complete or q.failed then return nil end
     if GetQuestLogCompletionText then
         local ok, text = pcall(GetQuestLogCompletionText, q.logIndex)
-        if ok and type(text) == "string" and text ~= "" then return text end
+        if ok and type(text) == "string" and text ~= "" and not (shown and shown[Plain(text)]) then
+            return text
+        end
     end
     local DB = QuestieModule("QuestieDB")
     if DB and type(DB.GetQuest) == "function" then
@@ -317,9 +328,15 @@ function ns.GetDetails(q)
         end
     end
 
+    -- A quest with nothing to count (deliver this, speak to him) gets its summary back from the
+    -- game as its one objective; that copy is left out, so the sentence isn't shown twice.
+    local shown = {}
+    if d.objectiveText then shown[Plain(d.objectiveText)] = true end
     local objectives = C_QuestLog.GetQuestObjectives and C_QuestLog.GetQuestObjectives(q.questID)
     for _, o in ipairs(objectives or {}) do
-        if o.text and o.text ~= "" then
+        local key = Plain(o.text)
+        if key and key ~= "" and not shown[key] then
+            shown[key] = true
             d.objectives[#d.objectives + 1] = { text = o.text, finished = o.finished }
         end
     end
@@ -335,7 +352,7 @@ function ns.GetDetails(q)
     d.choices = RewardItems("choice", q.questID)
     d.rewards = RewardItems("reward", q.questID)
     d.questie = ns.QuestieInfo(q.questID)
-    d.turnIn, d.turnInFromQuestie = ns.TurnInHint(q)
+    d.turnIn, d.turnInFromQuestie = ns.TurnInHint(q, shown)
     d.reputation = ns.ReputationRewards(q.questID)
     return d
 end
