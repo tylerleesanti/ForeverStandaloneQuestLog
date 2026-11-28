@@ -1,4 +1,4 @@
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Reads the player's quest log through the modern C_QuestLog API (what the Forever client has;
 -- the classic GetQuestLogTitle family does not exist there) and turns it into a flat list of
@@ -106,7 +106,6 @@ function ns.BuildRows(filter)
                     questID = info.questID,
                     title = info.title or "?",
                     level = info.level or 0,
-                    suggestedGroup = info.suggestedGroup,
                     tag = TagFor(info.questID),
                     complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID),
                     failed = C_QuestLog.IsFailed and C_QuestLog.IsFailed(info.questID),
@@ -178,11 +177,12 @@ end
 -- Read straight from Questie's modules, all inside pcall: Questie can change between versions,
 -- and a missing piece only leaves that line out.
 ------------------------------------------------------------------------
+-- One of Questie's internal modules (QuestieDB, ZoneDB, ...), or nil without Questie.
 local function QuestieModule(name)
     local modules = _G.QuestieLoader and QuestieLoader._modules
     return modules and modules[name]
 end
-ns.QuestieModule = QuestieModule
+ns.QuestieModule = QuestieModule -- also used by the window (Show Map) and the hooks
 
 local function AreaName(areaID)
     if not areaID then return nil end
@@ -294,7 +294,6 @@ end
 -- Thunder Bluff.") when it has one, else the nearest turn-in from Questie's database.
 -- `shown` (optional) holds the Plain() texts already on the page: some quests' completion text is
 -- just their summary again ("Bring Deliah's Ring to Raleigh."), so that one gives way to Questie's.
--- Returns the text, and true when it came from Questie.
 function ns.TurnInHint(q, shown)
     if not q or not q.complete or q.failed then return nil end
     if GetQuestLogCompletionText then
@@ -307,13 +306,13 @@ function ns.TurnInHint(q, shown)
     if DB and type(DB.GetQuest) == "function" then
         local ok, quest = pcall(DB.GetQuest, q.questID)
         local finisher = ok and type(quest) == "table" and NearestPerson(quest.Finisher)
-        if finisher then return "Return to " .. finisher .. ".", true end
+        if finisher then return "Return to " .. finisher .. "." end
     end
 end
 
 -- Everything the details pane shows for one quest.
 function ns.GetDetails(q)
-    local d = { title = q.title, level = q.level, tag = q.tag, objectives = {} }
+    local d = { title = q.title, objectives = {} }
 
     -- GetQuestLogQuestText reads the selected quest, so select it first (only when it changes,
     -- so a refresh never re-selects the same quest over and over).
@@ -352,7 +351,7 @@ function ns.GetDetails(q)
     d.choices = RewardItems("choice", q.questID)
     d.rewards = RewardItems("reward", q.questID)
     d.questie = ns.QuestieInfo(q.questID)
-    d.turnIn, d.turnInFromQuestie = ns.TurnInHint(q, shown)
+    d.turnIn = ns.TurnInHint(q, shown)
     d.reputation = ns.ReputationRewards(q.questID)
     return d
 end

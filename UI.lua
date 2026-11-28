@@ -21,16 +21,17 @@ local ART_ROWS = { 0, 80, 400, 445 }             -- art y breaks (from the top)
 local ROW_STRETCH = { false, true, false }
 local artPieces = {}
 
--- Details page text colours. They start as the Classic theme's parchment ink (the game's
--- "Parchment" material); ns.ApplyTheme swaps them for the theme in use.
-local TITLE_R, TITLE_G, TITLE_B = 0, 0, 0
-local TEXT_R, TEXT_G, TEXT_B = 0.18, 0.12, 0.06
-local DONE_R, DONE_G, DONE_B = 0.3, 0.3, 0.3
-local FREQ_R, FREQ_G, FREQ_B = 0.1, 0.25, 0.55  -- "Daily quest"
-local WARN_R, WARN_G, WARN_B = 0.6, 0.05, 0.05  -- time left, reputation losses
-local detailShadow = false                     -- light text on the dark theme gets a drop shadow
+-- Details page text colours, set from the theme in use by ns.ApplyTheme (which runs before anything
+-- is drawn).
+local TITLE_R, TITLE_G, TITLE_B
+local TEXT_R, TEXT_G, TEXT_B
+local DONE_R, DONE_G, DONE_B -- finished objectives
+local FREQ_R, FREQ_G, FREQ_B -- "Daily quest"
+local WARN_R, WARN_G, WARN_B -- time left, reputation losses
+local detailShadow = false   -- light text on the dark theme gets a drop shadow
 
--- Themes: Classic is the Wrath quest log art; Dark is flat and dark, after Details! and similar.
+-- Themes: Classic is the Wrath quest log art, with the game's "Parchment" ink; Dark is flat and dark,
+-- after Details! and similar.
 local THEMES = {
     classic = {
         title = { 0, 0, 0 }, text = { 0.18, 0.12, 0.06 }, done = { 0.3, 0.3, 0.3 },
@@ -445,7 +446,7 @@ local function UpdateList()
 end
 
 ------------------------------------------------------------------------
--- Details pane (dark text on the parchment page)
+-- Details pane
 ------------------------------------------------------------------------
 local detailLines = {} -- reusable font strings
 
@@ -470,8 +471,8 @@ local function DetailLine(i, font)
 end
 
 -- Reward item buttons, as the classic log drew them: the icon with its count, and the name in the
--- dark box beside it, two to a row. Hover for the tooltip (Shift compares), Shift-click to
--- link it, Ctrl-click to try it on.
+-- dark box beside it, as many to a row as the width allows. Hover for the tooltip (Shift compares),
+-- Shift-click to link it, Ctrl-click to try it on.
 local itemButtons = {}
 local ITEM_COL, ITEM_ROW = 147, 44
 
@@ -579,7 +580,7 @@ local function SetItemButton(b, item)
     b.count:SetText(item.count and item.count > 1 and item.count or "")
     b.name:SetText(item.name or RETRIEVING_ITEM_INFO or "Loading...")
     -- The name sits in the dark box, so it's drawn in the item's rarity colour (grey,
-    -- white, green, blue, purple...) rather than the parchment's dark ink.
+    -- white, green, blue, purple...) rather than the page's text colour.
     local r, g, bl = 1, 1, 1
     if item.quality then
         if C_Item and C_Item.GetItemQualityColor then
@@ -599,7 +600,7 @@ local function SetItemButton(b, item)
 end
 
 -- The info icon at the end of the quest's name on the details page. Hovering it shows what Questie
--- knows about the quest: who gives it, who takes it, its required level and its chain.
+-- knows about the quest (who gives it, who takes it, its required level and its chain) and its ID.
 local INFO_SIZE = 16
 local infoBtn, measureFS
 
@@ -973,7 +974,6 @@ local function ThemeButton(b, dark)
     ShowEdges(f.edges, dark)
     b:SetNormalFontObject(dark and GameFontHighlight or GameFontNormal)
 end
-ns.ThemeButton = ThemeButton
 
 -- Forever's UIPanelButtonTemplate and UIPanelCloseButton are the modern (red, atlas) versions,
 -- which don't fit the classic art, so these buttons use the classic textures directly.
@@ -1009,7 +1009,6 @@ local function MakeButton(parent, label, width, onClick)
     return b
 end
 
--- The classic cogwheel (UI-OptionsButton), left of the close button in the title bar.
 ------------------------------------------------------------------------
 -- Show Map
 --
@@ -1027,61 +1026,36 @@ local function QuestMapID(questID)
     if id and id ~= 0 then return id end
 end
 
-local function QuestieModule(name)
-    local modules = _G.QuestieLoader and QuestieLoader._modules
-    return modules and modules[name]
-end
-
-local function MapName(mapID)
-    local info = mapID and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
-    return info and info.name or "?"
-end
+local QuestieModule = ns.QuestieModule
 
 -- Where the map should open for a quest, from Questie's quest database: the zone of the nearest
 -- turn-in once the quest is complete, otherwise of the nearest unfinished objective. Read straight
 -- from the database rather than through Questie's tracker, whose "show on map" only works for quests
--- its tracker has matched up. `say` (optional) gets a line per step, for /fql map.
+-- its tracker has matched up.
 -- Returns the uiMapID, and Questie's quest object (for flashing its icons).
-local function QuestieQuestMap(questID, say)
-    say = say or function() end
+local function QuestieQuestMap(questID)
     local DB, DU, Z = QuestieModule("QuestieDB"), QuestieModule("DistanceUtils"), QuestieModule("ZoneDB")
-    if not (DB and DU and Z) then
-        say("Questie: not loaded")
-        return nil
-    end
+    if not (DB and DU and Z) then return nil end
     local ok, quest = pcall(DB.GetQuest, questID)
-    if not ok or not quest then
-        say("Questie: doesn't know quest " .. questID .. (ok and "" or (" (error: " .. tostring(quest) .. ")")))
-        return nil
-    end
+    if not ok or not quest then return nil end
     local complete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(questID)
-    local okSpawn, spawn, zone
+    local okSpawn, zone, _
     if complete and quest.Finisher then
-        okSpawn, spawn, zone = pcall(DU.GetNearestFinisherOrStarter, quest.Finisher)
-        say(("Questie: complete, nearest turn-in: area %s"):format(tostring(okSpawn and zone or spawn)))
+        okSpawn, _, zone = pcall(DU.GetNearestFinisherOrStarter, quest.Finisher)
     else
-        okSpawn, spawn, zone = pcall(DU.GetNearestSpawnForQuest, quest)
-        say(("Questie: %s, nearest objective: area %s"):format(complete and "complete (no turn-in data)" or "not complete",
-            tostring(okSpawn and zone or spawn)))
+        okSpawn, _, zone = pcall(DU.GetNearestSpawnForQuest, quest)
     end
     if not okSpawn or not zone then return nil end
-    local mapID = Z:GetUiMapIdByAreaId(zone)
-    say(("Questie: area %s is map %s (%s)"):format(tostring(zone), tostring(mapID), MapName(mapID)))
-    return mapID, quest
+    local okMap, mapID = pcall(Z.GetUiMapIdByAreaId, Z, zone)
+    return okMap and mapID or nil, quest
 end
 
 -- The map to open for a quest: Questie's answer, else the game's own quest map data, else the
 -- player's zone.
-local function ResolveQuestMap(questID, say)
-    say = say or function() end
-    local mapID, quest = QuestieQuestMap(questID, say)
+local function ResolveQuestMap(questID)
+    local mapID, quest = QuestieQuestMap(questID)
     if mapID then return mapID, quest end
-    mapID = QuestMapID(questID)
-    say(("Game: quest map %s (%s)"):format(tostring(mapID), MapName(mapID)))
-    if mapID then return mapID end
-    mapID = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    say(("Fallback: your zone, map %s (%s)"):format(tostring(mapID), MapName(mapID)))
-    return mapID
+    return QuestMapID(questID) or (C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player"))
 end
 
 local function OpenMapToQuest(q)
@@ -1102,21 +1076,6 @@ local function OpenMapToQuest(q)
     if questieQuest and utils and type(utils.FlashFinisher) == "function" then
         pcall(utils.FlashFinisher, utils, questieQuest)
     end
-end
-
--- /fql map: prints how Show Map picks the map for the selected quest.
-function ns.DebugQuestMap()
-    local q
-    for _, r in ipairs(rows) do
-        if not r.isHeader and r.questID == selectedQuestID then q = r end
-    end
-    if not q then
-        ns.Print("Select a quest in the window first.")
-        return
-    end
-    ns.Print(("Show Map for \"%s\" (quest %d):"):format(q.title, q.questID))
-    local mapID = ResolveQuestMap(q.questID, function(line) ns.Print("  " .. line) end)
-    ns.Print(("  Opens map %s (%s)"):format(tostring(mapID), MapName(mapID)))
 end
 
 -- The classic "Show Map" button: the label, then the little map picture (UI-QuestMap_Button's top
@@ -1146,9 +1105,8 @@ local function MakeMapButton(parent)
     end)
     b:SetScript("OnMouseUp", function() art:SetTexCoord(0.125, 0.875, 0, 0.5) end)
     b:SetScript("OnClick", function()
-        for _, r in ipairs(rows) do
-            if not r.isHeader and r.questID == selectedQuestID then return OpenMapToQuest(r) end
-        end
+        local q = SelectedRow()
+        if q then OpenMapToQuest(q) end
     end)
     b:SetScript("OnEnable", function()
         art:SetDesaturated(false)
@@ -1168,6 +1126,7 @@ local function MakeMapButton(parent)
     return b
 end
 
+-- The classic cogwheel (UI-OptionsButton), left of the close button in the title bar.
 local function MakeCogButton(parent)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(16, 16)
@@ -1721,7 +1680,7 @@ function ns.CreateWindow()
     emptyText:SetWidth(200)
     emptyText:SetPoint("CENTER", listScroll, "CENTER", -6, 16)
 
-    -- Details (right parchment page)
+    -- Details (the right page)
     detailScroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
     detailScroll:SetPoint("TOPRIGHT", DETAIL_RIGHT, DETAIL_Y)
     detailChild = CreateFrame("Frame", nil, detailScroll)

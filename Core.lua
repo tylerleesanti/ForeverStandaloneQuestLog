@@ -97,13 +97,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if arg1 ~= ADDON then return end
         ForeverQuestLogDB = CopyDefaults(ForeverQuestLogDB or {}, ns.defaults)
         ns.db = ForeverQuestLogDB
-        -- Layout 2 is the classic-art window; a position saved for the old, larger window would
-        -- no longer fit, so it starts again at the classic left-panel spot.
-        if (ns.db.layout or 1) < 2 then
-            ns.db.point = nil
-            ns.db.layout = 2
-        end
-        ns.db.lastShowMap = nil -- a Show Map diagnostic record from a test build; no longer written
+        -- Settings from test builds that no longer exist.
+        ns.db.layout, ns.db.lastShowMap, ns.db.textShadow = nil, nil, nil
         ns.ApplyFonts()
         ns.CreateWindow()
     elseif event == "PLAYER_LOGIN" or event == "UPDATE_BINDINGS" then
@@ -133,11 +128,11 @@ SlashCmdList.FOREVERQUESTLOG = function(msg)
             or "L is back to the game's map quest log.")
     elseif msg == "levels" then
         ns.db.showLevels = not ns.db.showLevels
-        ns.MarkDirty(true)
+        ns.MarkDirty()
         ns.Print("Quest levels " .. (ns.db.showLevels and "shown." or "hidden."))
     elseif msg == "colors" or msg == "colours" then
         ns.db.colorByLevel = not ns.db.colorByLevel
-        ns.MarkDirty(true)
+        ns.MarkDirty()
         ns.Print("Difficulty colours " .. (ns.db.colorByLevel and "on." or "off."))
     elseif msg == "hooks" then
         local parts = {}
@@ -145,10 +140,7 @@ SlashCmdList.FOREVERQUESTLOG = function(msg)
             parts[#parts + 1] = hook[1] .. " " .. (hook[2] and "|cff20ff20hooked|r" or "|cffff2020not found|r")
         end
         ns.Print("Redirected: " .. table.concat(parts, ", ") .. ".")
-    elseif msg == "map" then
-        ns.DebugQuestMap()
     elseif msg == "reset" then
-        ns.db.point = nil
         ns.ResetPosition()
         ns.Print("Window position reset.")
     else

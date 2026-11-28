@@ -1,4 +1,4 @@
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Sends "open the quest log at this quest" clicks from the quest trackers to this window instead of
 -- the world map's quest log. Each hook falls back to the original when the setting is off or the
@@ -45,8 +45,7 @@ local questieHooked = false
 
 local function HookQuestie()
     if questieHooked then return end
-    local modules = _G.QuestieLoader and QuestieLoader._modules
-    local utils = modules and modules.TrackerUtils
+    local utils = ns.QuestieModule("TrackerUtils")
     if not utils or type(utils.ShowQuestLog) ~= "function" then return end
     questieHooked = true
     local original = utils.ShowQuestLog

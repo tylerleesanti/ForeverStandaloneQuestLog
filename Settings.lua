@@ -1,4 +1,4 @@
-local ADDON, ns = ...
+local _, ns = ...
 
 ------------------------------------------------------------------------
 -- Fonts
@@ -153,8 +153,6 @@ local function MakeCheck(label, key, anchor, y, onChange)
     widgets[#widgets + 1] = cb
     return cb
 end
-
-local DEFAULT_HEADER_COLOR = { 1, 1, 1 }
 
 local function SetHeaderColor(r, g, b)
     local c = ns.db.headerColor
@@ -319,7 +317,7 @@ function ns.CreateSettings(window)
     local c1 = MakeCheck("Show quest levels", "showLevels", s5, -24)
     local c2 = MakeCheck("Colour by difficulty", "colorByLevel", c1, 0)
     c2:SetPoint("TOPLEFT", c1, "BOTTOMLEFT", 0, 2)
-    local c3 = MakeCheck("L opens this window", "replaceKey", c2, 0, function() ns.ApplyBindings(true) end)
+    local c3 = MakeCheck("L opens this window", "replaceKey", c2, 0, function() ns.ApplyBindings() end)
     c3:SetPoint("TOPLEFT", c2, "BOTTOMLEFT", 0, 2)
 
     local c4 = MakeCheck("Quest clicks open this window", "trackerOpensLog", c3, 0)
@@ -352,7 +350,7 @@ function ns.CreateSettings(window)
     reset:SetPoint("BOTTOM", 0, 18)
     ns.StyleClassicButton(reset, RESET_TO_DEFAULT or "Reset to Default", function()
         ns.db.fontName, ns.db.fontHeader, ns.db.fontText = nil, nil, nil
-        local d = DEFAULT_HEADER_COLOR
+        local d = ns.defaults.headerColor
         ns.db.headerColor = { d[1], d[2], d[3] }
         ns.db.width, ns.db.height = nil, nil
         -- The checkboxes go back to their defaults too.
