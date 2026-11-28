@@ -28,6 +28,7 @@ local DONE_R, DONE_G, DONE_B = 0.35, 0.35, 0.35
 
 local DQ = "Interface\\QuestFrame\\"
 local BTN = "Interface\\Buttons\\"
+local MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 
 local frame, listScroll, listChild, detailScroll, detailChild
 local countText, searchBox, emptyText
@@ -190,6 +191,7 @@ local function ShowRowTooltip(row, q)
             end
         end
     end
+    if q.chain then GameTooltip:AddLine("Part of a quest chain", 0.75, 0.75, 0.8) end
     if q.party and #q.party > 0 then
         GameTooltip:AddLine("Party: " .. table.concat(q.party, ", "), 0.6, 0.8, 1, true)
     end
@@ -258,6 +260,11 @@ local function GetRow(i)
     row.text:SetPoint("RIGHT", row.tag, "LEFT", -4, 0)
     row.text:SetJustifyH("LEFT")
     row.text:SetWordWrap(false)
+
+    -- Chain icon after the name of a quest that's part of a chain (placed in UpdateList).
+    row.chain = row:CreateTexture(nil, "ARTWORK")
+    row.chain:SetTexture(MEDIA .. "chain")
+    row.chain:Hide()
 
     rowPool[i] = row
     return row
@@ -342,6 +349,8 @@ local function UpdateList()
             local hc = ns.db.headerColor
             row.text:SetTextColor(hc[1], hc[2], hc[3])
             row.tag:SetText("")
+            row.chain:Hide()
+            row.text:SetPoint("RIGHT", row.tag, "LEFT", -4, 0)
         else
             local cr, cg, cb = QuestColor(r.level)
             row.expand:Hide()
@@ -352,6 +361,21 @@ local function UpdateList()
             row.text:SetTextColor(cr, cg, cb)
             row.tag:SetText(RowTag(r))
             row.tag:SetTextColor(cr, cg, cb)
+            if r.chain then
+                -- The name gives up room for the icon, which sits right after its last letter.
+                local size = math.min(14, rowHeight - 2)
+                local room = size + 3
+                row.text:SetPoint("RIGHT", row.tag, "LEFT", -4 - room, 0)
+                local avail = listChild:GetWidth() - 22 - row.tag:GetStringWidth() - 4 - room
+                local nameW = math.min(row.text:GetUnboundedStringWidth(), math.max(0, avail))
+                row.chain:SetSize(size, size)
+                row.chain:ClearAllPoints()
+                row.chain:SetPoint("LEFT", row, "LEFT", 20 + nameW + 3, 0)
+                row.chain:Show()
+            else
+                row.chain:Hide()
+                row.text:SetPoint("RIGHT", row.tag, "LEFT", -4, 0)
+            end
             local isSelected = r.questID == selectedQuestID
             row.selected:SetShown(isSelected)
             if isSelected then row.selected:SetVertexColor(cr, cg, cb) end

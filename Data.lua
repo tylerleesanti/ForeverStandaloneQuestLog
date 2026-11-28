@@ -115,6 +115,7 @@ function ns.BuildRows(filter)
                     frequency = info.frequency, -- Enum.QuestFrequency: 1 daily, 2 weekly
                     repeatable = IsRepeatable(info.questID),
                     timeEnd = TimeEnd(info.questID, i, classicEnds),
+                    chain = ns.IsChainQuest(info.questID),
                 }
                 if not header then -- quests before any header (rare): give them one
                     header = { isHeader = true, title = OTHER or "Other", count = 0, children = {} }
@@ -209,6 +210,25 @@ local function QuestName(DB, questID)
 end
 
 local questieCache = {}
+
+-- Whether a quest is part of a chain: Questie lists a quest that must come before it, or a next
+-- quest after it. nil (and not remembered) while Questie isn't loaded.
+local chainCache = {}
+
+function ns.IsChainQuest(questID)
+    if chainCache[questID] ~= nil then return chainCache[questID] end
+    local DB = QuestieModule("QuestieDB")
+    if not DB or type(DB.QueryQuestSingle) ~= "function" then return nil end
+    local function field(name)
+        local ok, value = pcall(DB.QueryQuestSingle, questID, name)
+        return ok and value or nil
+    end
+    local pre, preGroup, nextID = field("preQuestSingle"), field("preQuestGroup"), field("nextQuestInChain")
+    local chain = (type(pre) == "table" and #pre > 0) or (type(preGroup) == "table" and #preGroup > 0)
+        or (type(nextID) == "number" and nextID > 0)
+    chainCache[questID] = chain and true or false
+    return chainCache[questID]
+end
 
 function ns.QuestieInfo(questID)
     local DB = QuestieModule("QuestieDB")
