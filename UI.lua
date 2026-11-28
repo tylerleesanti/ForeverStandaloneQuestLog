@@ -363,7 +363,7 @@ local function UpdateList()
             row.tag:SetTextColor(cr, cg, cb)
             if r.chain then
                 -- The name gives up room for the icon, which sits right after its last letter.
-                local size = math.min(14, rowHeight - 2)
+                local size = math.min(11, rowHeight - 4)
                 local room = size + 3
                 row.text:SetPoint("RIGHT", row.tag, "LEFT", -4 - room, 0)
                 local avail = listChild:GetWidth() - 22 - row.tag:GetStringWidth() - 4 - room
